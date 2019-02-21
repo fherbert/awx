@@ -8,20 +8,26 @@ SOSREPORT_TOWER_COMMANDS = [
     "ansible --version",      # ansible core version
     "awx-manage --version", # tower version
     "awx-manage list_instances", # tower cluster configuration
+    "awx-manage run_dispatcher --status", # tower dispatch worker status
     "supervisorctl status",   # tower process status
     "rabbitmqctl status",
     "rabbitmqctl cluster_status",
-    "/var/lib/awx/venv/awx/bin/pip freeze",             # pip package list
-    "/var/lib/awx/venv/ansible/bin/pip freeze",             # pip package list
+    "/var/lib/awx/venv/awx/bin/pip freeze",        # pip package list
+    "/var/lib/awx/venv/awx/bin/pip freeze -l",     # pip package list without globally-installed packages
+    "/var/lib/awx/venv/ansible/bin/pip freeze",    # pip package list
+    "/var/lib/awx/venv/ansible/bin/pip freeze -l", # pip package list without globally-installed packages
     "tree -d /var/lib/awx",   # show me the dirs
     "ls -ll /var/lib/awx",    # check permissions
     "ls -ll /var/lib/awx/venv", # list all venvs
-    "ls -ll /etc/tower"
+    "ls -ll /etc/tower",
+    "umask -p"    # check current umask
 ]
 
 SOSREPORT_TOWER_DIRS = [
     "/etc/tower/",
     "/etc/ansible/",
+    "/etc/supervisord.d/",
+    "/etc/nginx/",
     "/var/log/tower",
     "/var/log/nginx",
     "/var/log/rabbitmq",
@@ -40,7 +46,8 @@ SOSREPORT_FORBIDDEN_PATHS = [
     "/etc/tower/tower.key",
     "/etc/tower/awx.key",
     "/etc/tower/tower.cert",
-    "/etc/tower/awx.cert"
+    "/etc/tower/awx.cert",
+    "/var/log/tower/profile"
 ]
 
 if LooseVersion(sos.__version__) >= LooseVersion('3.0'):

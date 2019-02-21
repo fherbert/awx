@@ -10,21 +10,15 @@ import os
 import re
 import subprocess
 import stat
-import sys
-import urllib
-import urlparse
+import urllib.parse
 import threading
 import contextlib
 import tempfile
-import six
 import psutil
-from functools import reduce
-from StringIO import StringIO
+from functools import reduce, wraps
+from io import StringIO
 
 from decimal import Decimal
-
-# Decorator
-from decorator import decorator
 
 # Django
 from django.core.exceptions import ObjectDoesNotExist
@@ -35,14 +29,14 @@ from django.db.models.query import QuerySet
 from django.db.models import Q
 
 # Django REST Framework
-from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.exceptions import ParseError
 from django.utils.encoding import smart_str
 from django.utils.text import slugify
 from django.apps import apps
 
 logger = logging.getLogger('awx.main.utils')
 
-__all__ = ['get_object_or_400', 'get_object_or_403', 'camelcase_to_underscore', 'memoize', 'memoize_delete',
+__all__ = ['get_object_or_400', 'camelcase_to_underscore', 'memoize', 'memoize_delete',
            'get_ansible_version', 'get_ssh_version', 'get_licenser', 'get_awx_version', 'update_scm_url',
            'get_type_for_model', 'get_model_for_type', 'copy_model_by_class', 'region_sorting',
            'copy_m2m_relationships', 'prefetch_page_capabilities', 'to_python_boolean',
@@ -52,7 +46,8 @@ __all__ = ['get_object_or_400', 'get_object_or_403', 'camelcase_to_underscore', 
            'extract_ansible_vars', 'get_search_fields', 'get_system_task_capacity', 'get_cpu_capacity', 'get_mem_capacity',
            'wrap_args_with_proot', 'build_proot_temp_dir', 'check_proot_installed', 'model_to_dict',
            'model_instance_diff', 'timestamp_apiformat', 'parse_yaml_or_json', 'RequireDebugTrueOrTest',
-           'has_model_field_prefetched', 'set_environ', 'IllegalArgumentError', 'get_custom_venv_choices', 'get_external_account']
+           'has_model_field_prefetched', 'set_environ', 'IllegalArgumentError', 'get_custom_venv_choices', 'get_external_account',
+           'task_manager_bulk_reschedule', 'schedule_task_manager', 'classproperty']
 
 
 def get_object_or_400(klass, *args, **kwargs):
@@ -70,23 +65,8 @@ def get_object_or_400(klass, *args, **kwargs):
         raise ParseError(*e.args)
 
 
-def get_object_or_403(klass, *args, **kwargs):
-    '''
-    Return a single object from the given model or queryset based on the query
-    params, otherwise raise an exception that will return in a 403 response.
-    '''
-    from django.shortcuts import _get_queryset
-    queryset = _get_queryset(klass)
-    try:
-        return queryset.get(*args, **kwargs)
-    except queryset.model.DoesNotExist as e:
-        raise PermissionDenied(*e.args)
-    except queryset.model.MultipleObjectsReturned as e:
-        raise PermissionDenied(*e.args)
-
-
 def to_python_boolean(value, allow_none=False):
-    value = six.text_type(value)
+    value = str(value)
     if value.lower() in ('true', '1', 't'):
         return True
     elif value.lower() in ('false', '0', 'f'):
@@ -94,15 +74,16 @@ def to_python_boolean(value, allow_none=False):
     elif allow_none and value.lower() in ('none', 'null'):
         return None
     else:
-        raise ValueError(_(u'Unable to convert "%s" to boolean') % six.text_type(value))
+        raise ValueError(_(u'Unable to convert "%s" to boolean') % value)
 
 
 def region_sorting(region):
-        if region[1].lower() == 'all':
-            return -1
-        elif region[1].lower().startswith('us'):
-            return 0
+    # python3's removal of sorted(cmp=...) is _stupid_
+    if region[1].lower() == 'all':
+        return ''
+    elif region[1].lower().startswith('us'):
         return region[1]
+    return 'ZZZ' + str(region[1])
 
 
 def camelcase_to_underscore(s):
@@ -120,7 +101,7 @@ class RequireDebugTrueOrTest(logging.Filter):
 
     def filter(self, record):
         from django.conf import settings
-        return settings.DEBUG or 'test' in sys.argv
+        return settings.DEBUG or settings.IS_TESTING()
 
 
 class IllegalArgumentError(ValueError):
@@ -132,35 +113,39 @@ def get_memoize_cache():
     return cache
 
 
-def memoize(ttl=60, cache_key=None, track_function=False):
+def memoize(ttl=60, cache_key=None, track_function=False, cache=None):
     '''
     Decorator to wrap a function and cache its result.
     '''
-    cache = get_memoize_cache()
+    if cache_key and track_function:
+        raise IllegalArgumentError("Can not specify cache_key when track_function is True")
+    cache = cache or get_memoize_cache()
 
-    def _memoizer(f, *args, **kwargs):
-        if cache_key and track_function:
-            raise IllegalArgumentError("Can not specify cache_key when track_function is True")
-
-        if track_function:
-            cache_dict_key = slugify('%r %r' % (args, kwargs))
-            key = slugify("%s" % f.__name__)
-            cache_dict = cache.get(key) or dict()
-            if cache_dict_key not in cache_dict:
-                value = f(*args, **kwargs)
-                cache_dict[cache_dict_key] = value
-                cache.set(key, cache_dict, ttl)
+    def memoize_decorator(f):
+        @wraps(f)
+        def _memoizer(*args, **kwargs):
+            if track_function:
+                cache_dict_key = slugify('%r %r' % (args, kwargs))
+                key = slugify("%s" % f.__name__)
+                cache_dict = cache.get(key) or dict()
+                if cache_dict_key not in cache_dict:
+                    value = f(*args, **kwargs)
+                    cache_dict[cache_dict_key] = value
+                    cache.set(key, cache_dict, ttl)
+                else:
+                    value = cache_dict[cache_dict_key]
             else:
-                value = cache_dict[cache_dict_key]
-        else:
-            key = cache_key or slugify('%s %r %r' % (f.__name__, args, kwargs))
-            value = cache.get(key)
-            if value is None:
-                value = f(*args, **kwargs)
-                cache.set(key, value, ttl)
+                key = cache_key or slugify('%s %r %r' % (f.__name__, args, kwargs))
+                value = cache.get(key)
+                if value is None:
+                    value = f(*args, **kwargs)
+                    cache.set(key, value, ttl)
 
-        return value
-    return decorator(_memoizer)
+            return value
+
+        return _memoizer
+
+    return memoize_decorator
 
 
 def memoize_delete(function_name):
@@ -176,7 +161,7 @@ def get_ansible_version():
     try:
         proc = subprocess.Popen(['ansible', '--version'],
                                 stdout=subprocess.PIPE)
-        result = proc.communicate()[0]
+        result = smart_str(proc.communicate()[0])
         return result.split('\n')[0].replace('ansible', '').strip()
     except Exception:
         return 'unknown'
@@ -190,7 +175,7 @@ def get_ssh_version():
     try:
         proc = subprocess.Popen(['ssh', '-V'],
                                 stderr=subprocess.PIPE)
-        result = proc.communicate()[1]
+        result = smart_str(proc.communicate()[1])
         return result.split(" ")[0].split("_")[1]
     except Exception:
         return 'unknown'
@@ -254,7 +239,7 @@ def update_scm_url(scm_type, url, username=True, password=True,
         raise ValueError(_('Unsupported SCM type "%s"') % str(scm_type))
     if not url.strip():
         return ''
-    parts = urlparse.urlsplit(url)
+    parts = urllib.parse.urlsplit(url)
     try:
         parts.port
     except ValueError:
@@ -280,14 +265,14 @@ def update_scm_url(scm_type, url, username=True, password=True,
             modified_url = '@'.join(filter(None, [userpass, hostpath]))
             # git+ssh scheme identifies URLs that should be converted back to
             # SCP style before passed to git module.
-            parts = urlparse.urlsplit('git+ssh://%s' % modified_url)
+            parts = urllib.parse.urlsplit('git+ssh://%s' % modified_url)
         # Handle local paths specified without file scheme (e.g. /path/to/foo).
         # Only supported by git and hg.
         elif scm_type in ('git', 'hg'):
             if not url.startswith('/'):
-                parts = urlparse.urlsplit('file:///%s' % url)
+                parts = urllib.parse.urlsplit('file:///%s' % url)
             else:
-                parts = urlparse.urlsplit('file://%s' % url)
+                parts = urllib.parse.urlsplit('file://%s' % url)
         else:
             raise ValueError(_('Invalid %s URL') % scm_type)
 
@@ -333,14 +318,14 @@ def update_scm_url(scm_type, url, username=True, password=True,
             netloc_password = ''
 
     if netloc_username and parts.scheme != 'file' and scm_type != "insights":
-        netloc = u':'.join([urllib.quote(x,safe='') for x in (netloc_username, netloc_password) if x])
+        netloc = u':'.join([urllib.parse.quote(x,safe='') for x in (netloc_username, netloc_password) if x])
     else:
         netloc = u''
     netloc = u'@'.join(filter(None, [netloc, parts.hostname]))
     if parts.port:
-        netloc = u':'.join([netloc, six.text_type(parts.port)])
-    new_url = urlparse.urlunsplit([parts.scheme, netloc, parts.path,
-                                   parts.query, parts.fragment])
+        netloc = u':'.join([netloc, str(parts.port)])
+    new_url = urllib.parse.urlunsplit([parts.scheme, netloc, parts.path,
+                                       parts.query, parts.fragment])
     if scp_format and parts.scheme == 'git+ssh':
         new_url = new_url.replace('git+ssh://', '', 1).replace('/', ':', 1)
     return new_url
@@ -375,7 +360,7 @@ def _convert_model_field_for_display(obj, field_name, password_fields=None):
     if password_fields is None:
         password_fields = set(getattr(type(obj), 'PASSWORD_FIELDS', [])) | set(['password'])
     if field_name in password_fields or (
-        isinstance(field_val, six.string_types) and
+        isinstance(field_val, str) and
         field_val.startswith('$encrypted$')
     ):
         return u'hidden'
@@ -386,7 +371,7 @@ def _convert_model_field_for_display(obj, field_name, password_fields=None):
             field_val = json.dumps(field_val, ensure_ascii=False)
         except Exception:
             pass
-    if type(field_val) not in (bool, int, type(None), long):
+    if type(field_val) not in (bool, int, type(None)):
         field_val = smart_str(field_val)
     return field_val
 
@@ -497,7 +482,7 @@ def copy_m2m_relationships(obj1, obj2, fields, kwargs=None):
                     if isinstance(override_field_val, (set, list, QuerySet)):
                         getattr(obj2, field_name).add(*override_field_val)
                         continue
-                    if override_field_val.__class__.__name__ is 'ManyRelatedManager':
+                    if override_field_val.__class__.__name__ == 'ManyRelatedManager':
                         src_field_value = override_field_val
                 dest_field = getattr(obj2, field_name)
                 dest_field.add(*list(src_field_value.all().values_list('id', flat=True)))
@@ -557,7 +542,7 @@ def prefetch_page_capabilities(model, page, prefetch_list, user):
 
         display_method = None
         if type(prefetch_entry) is dict:
-            display_method = prefetch_entry.keys()[0]
+            display_method = list(prefetch_entry.keys())[0]
             paths = prefetch_entry[display_method]
         else:
             paths = prefetch_entry
@@ -622,7 +607,7 @@ def parse_yaml_or_json(vars_str, silent_failure=True):
     '''
     if isinstance(vars_str, dict):
         return vars_str
-    elif isinstance(vars_str, six.string_types) and vars_str == '""':
+    elif isinstance(vars_str, str) and vars_str == '""':
         return {}
 
     try:
@@ -698,7 +683,7 @@ def get_mem_capacity():
         forkmem = 100
 
     mem = psutil.virtual_memory().total
-    return (mem, max(1, ((mem / 1024 / 1024) - 2048) / forkmem))
+    return (mem, max(1, ((mem // 1024 // 1024) - 2048) // forkmem))
 
 
 def get_system_task_capacity(scale=Decimal(1.0), cpu_capacity=None, mem_capacity=None):
@@ -726,6 +711,7 @@ def get_system_task_capacity(scale=Decimal(1.0), cpu_capacity=None, mem_capacity
 
 
 _inventory_updates = threading.local()
+_task_manager = threading.local()
 
 
 @contextlib.contextmanager
@@ -739,6 +725,37 @@ def ignore_inventory_computed_fields():
         yield
     finally:
         _inventory_updates.is_updating = previous_value
+
+
+def _schedule_task_manager():
+    from awx.main.scheduler.tasks import run_task_manager
+    from django.db import connection
+    # runs right away if not in transaction
+    connection.on_commit(lambda: run_task_manager.delay())
+
+
+@contextlib.contextmanager
+def task_manager_bulk_reschedule():
+    """Context manager to avoid submitting task multiple times.
+    """
+    try:
+        previous_flag = getattr(_task_manager, 'bulk_reschedule', False)
+        previous_value = getattr(_task_manager, 'needs_scheduling', False)
+        _task_manager.bulk_reschedule = True
+        _task_manager.needs_scheduling = False
+        yield
+    finally:
+        _task_manager.bulk_reschedule = previous_flag
+        if _task_manager.needs_scheduling:
+            _schedule_task_manager()
+        _task_manager.needs_scheduling = previous_value
+
+
+def schedule_task_manager():
+    if getattr(_task_manager, 'bulk_reschedule', False):
+        _task_manager.needs_scheduling = True
+        return
+    _schedule_task_manager()
 
 
 @contextlib.contextmanager
@@ -850,7 +867,7 @@ def wrap_args_with_proot(args, cwd, **kwargs):
         path = os.path.realpath(path)
         new_args.extend(['--bind', '%s' % (path,), '%s' % (path,)])
     if kwargs.get('isolated'):
-        if 'ansible-playbook' in args:
+        if '/bin/ansible-playbook' in ' '.join(args):
             # playbook runs should cwd to the SCM checkout dir
             new_args.extend(['--chdir', os.path.join(kwargs['private_data_dir'], 'project')])
         else:
@@ -880,13 +897,6 @@ def timestamp_apiformat(timestamp):
     if timestamp.endswith('+00:00'):
         timestamp = timestamp[:-6] + 'Z'
     return timestamp
-
-
-# damn you python 2.6
-def timedelta_total_seconds(timedelta):
-    return (
-        timedelta.microseconds + 0.0 +
-        (timedelta.seconds + timedelta.days * 24 * 3600) * 10 ** 6) / 10 ** 6
 
 
 class NoDefaultProvided(object):
@@ -933,7 +943,7 @@ def get_custom_venv_choices():
     custom_venv_path = settings.BASE_VENV_PATH
     if os.path.exists(custom_venv_path):
         return [
-            os.path.join(custom_venv_path, x.decode('utf-8'), '')
+            os.path.join(custom_venv_path, x, '')
             for x in os.listdir(custom_venv_path)
             if x != 'awx' and
             os.path.isdir(os.path.join(custom_venv_path, x)) and
@@ -966,6 +976,7 @@ class OutputEventFilter(object):
         pass
 
     def write(self, data):
+        data = smart_str(data)
         self._buffer.write(data)
 
         # keep a sliding window of the last chunk written so we can detect
@@ -1060,7 +1071,7 @@ def is_ansible_variable(key):
 def extract_ansible_vars(extra_vars):
     extra_vars = parse_yaml_or_json(extra_vars)
     ansible_vars = set([])
-    for key in extra_vars.keys():
+    for key in list(extra_vars.keys()):
         if is_ansible_variable(key):
             extra_vars.pop(key)
             ansible_vars.add(key)
@@ -1102,3 +1113,17 @@ def get_external_account(user):
             getattr(settings, 'TACACSPLUS_HOST', None)) and user.enterprise_auth.all():
         account_type = "enterprise"
     return account_type
+
+
+class classproperty:
+
+    def __init__(self, fget=None, fset=None, fdel=None, doc=None):
+        self.fget = fget
+        self.fset = fset
+        self.fdel = fdel
+        if doc is None and fget is not None:
+            doc = fget.__doc__
+        self.__doc__ = doc
+
+    def __get__(self, instance, ownerclass):
+        return self.fget(ownerclass)

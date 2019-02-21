@@ -1,8 +1,5 @@
-export default [ 'Rest', 'GetBasePath', 'ProcessErrors', 'CredentialTypeModel', 'TemplatesStrings',
-    function (Rest, GetBasePath, ProcessErrors, CredentialType, strings) {
-
-        // strings.get('deleteResource.HEADER')
-        // ${strings.get('deleteResource.CONFIRM', 'template')}
+export default [ 'ProcessErrors', 'CredentialTypeModel', 'TemplatesStrings',
+    function (ProcessErrors, CredentialType, strings) {
 
         const vm = this || {};
 
@@ -16,10 +13,8 @@ export default [ 'Rest', 'GetBasePath', 'ProcessErrors', 'CredentialTypeModel', 
             ({ modal } = scope[scope.ns]);
 
             scope.$watch('vm.promptData.triggerModalOpen', () => {
-
                 vm.actionButtonClicked = false;
                 if(vm.promptData && vm.promptData.triggerModalOpen) {
-
                     scope.$emit('launchModalOpen', true);
                     vm.promptDataClone = _.cloneDeep(vm.promptData);
 
@@ -53,7 +48,7 @@ export default [ 'Rest', 'GetBasePath', 'ProcessErrors', 'CredentialTypeModel', 
 
                     let credentialType = new CredentialType();
 
-                    credentialType.http.get()
+                    credentialType.http.get({ params: { page_size: 200 }})
                     .then( (response) => {
                         vm.promptDataClone.prompts.credentials.credentialTypes = {};
                         vm.promptDataClone.prompts.credentials.credentialTypeOptions = [];
@@ -188,7 +183,7 @@ export default [ 'Rest', 'GetBasePath', 'ProcessErrors', 'CredentialTypeModel', 
                         }
                         vm.steps.preview.tab.order = order;
                         vm.steps.preview.tab._disabled = vm.readOnlyPrompts ? false : true;
-                        modal.show('PROMPT');
+                        modal.show(strings.get('prompt.PROMPT'));
                         vm.promptData.triggerModalOpen = false;
 
                         modal.onClose = () => {

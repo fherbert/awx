@@ -101,6 +101,14 @@ function ListTemplatesController(
 
     vm.isPortalMode = $state.includes('portalMode');
 
+    vm.openWorkflowVisualizer = template => {
+        const name = 'templates.editWorkflowJobTemplate.workflowMaker';
+        const params = { workflow_job_template_id: template.id };
+        const options = { reload: true };
+
+        $state.go(name, params, options);
+    };
+
     vm.deleteTemplate = template => {
         if (!template) {
             Alert(strings.get('error.DELETE'), strings.get('alert.MISSING_PARAMETER'));
@@ -191,7 +199,7 @@ function ListTemplatesController(
     function refreshTemplates() {
         Wait('start');
         let path = GetBasePath('unified_job_templates');
-        qs.search(path, $state.params.template_search)
+        qs.search(path, $state.params.template_search, { 'X-WS-Session-Quiet': true })
             .then(function(searchResponse) {
                 vm.dataset = searchResponse.data;
                 vm.templates = vm.dataset.results;
@@ -226,7 +234,7 @@ function ListTemplatesController(
                     dismissButton: false,
                     dismissOnTimeout: true
                 });
-                $state.go('.', null, { reload: true });
+                refreshTemplates();
             })
             .catch(createErrorHandler('copy job template', 'POST'))
             .finally(() => Wait('stop'));
@@ -256,7 +264,7 @@ function ListTemplatesController(
                                 dismissButton: false,
                                 dismissOnTimeout: true
                             });
-                            $state.go('.', null, { reload: true });
+                            refreshTemplates();
                         })
                         .catch(createErrorHandler('copy workflow', 'POST'))
                         .finally(() => Wait('stop'));
@@ -381,6 +389,16 @@ function ListTemplatesController(
 
         return html;
     }
+
+    vm.isCollapsed = true;
+
+    vm.onCollapse = () => {
+        vm.isCollapsed = true;
+    };
+
+    vm.onExpand = () => {
+        vm.isCollapsed = false;
+    };
 }
 
 ListTemplatesController.$inject = [

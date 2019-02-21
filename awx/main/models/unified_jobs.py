@@ -2,7 +2,8 @@
 # All Rights Reserved.
 
 # Python
-from StringIO import StringIO
+from io import StringIO
+import codecs
 import json
 import logging
 import os
@@ -11,7 +12,6 @@ import socket
 import subprocess
 import tempfile
 from collections import OrderedDict
-import six
 
 # Django
 from django.conf import settings
@@ -30,15 +30,21 @@ from rest_framework.exceptions import ParseError
 from polymorphic.models import PolymorphicModel
 
 # AWX
-from awx.main.models.base import * # noqa
+from awx.main.models.base import (
+    CommonModelNameNotUnique,
+    PasswordFieldsModel,
+    NotificationFieldsModel,
+    prevent_search
+)
 from awx.main.dispatch.control import Control as ControlDispatcher
+from awx.main.registrar import activity_stream_registrar
 from awx.main.models.mixins import ResourceMixin, TaskManagerUnifiedJobMixin
 from awx.main.utils import (
     encrypt_dict, decrypt_field, _inventory_updates,
     copy_model_by_class, copy_m2m_relationships,
     get_type_for_model, parse_yaml_or_json, getattr_dne
 )
-from awx.main.utils import polymorphic
+from awx.main.utils import polymorphic, schedule_task_manager
 from awx.main.constants import ACTIVE_STATES, CAN_CANCEL
 from awx.main.redact import UriCleaner, REPLACE_STR
 from awx.main.consumers import emit_channel_notification
@@ -315,6 +321,7 @@ class UnifiedJobTemplate(PolymorphicModel, CommonModelNameNotUnique, Notificatio
         Return notification_templates relevant to this Unified Job Template
         '''
         # NOTE: Derived classes should implement
+        from awx.main.models.notifications import NotificationTemplate
         return NotificationTemplate.objects.none()
 
     def create_unified_job(self, **kwargs):
@@ -343,10 +350,11 @@ class UnifiedJobTemplate(PolymorphicModel, CommonModelNameNotUnique, Notificatio
         validated_kwargs = kwargs.copy()
         if unallowed_fields:
             if parent_field_name is None:
-                logger.warn(six.text_type('Fields {} are not allowed as overrides to spawn {} from {}.').format(
-                    six.text_type(', ').join(unallowed_fields), unified_job, self
+                logger.warn('Fields {} are not allowed as overrides to spawn from {}.'.format(
+                    ', '.join(unallowed_fields), self
                 ))
-            map(validated_kwargs.pop, unallowed_fields)
+            for f in unallowed_fields:
+                validated_kwargs.pop(f)
 
         unified_job = copy_model_by_class(self, unified_job_class, fields, validated_kwargs)
 
@@ -368,7 +376,12 @@ class UnifiedJobTemplate(PolymorphicModel, CommonModelNameNotUnique, Notificatio
             unified_job.survey_passwords = new_job_passwords
             kwargs['survey_passwords'] = new_job_passwords  # saved in config object for relaunch
 
-        unified_job.save()
+        from awx.main.signals import disable_activity_stream, activity_stream_create
+        with disable_activity_stream():
+            # Don't emit the activity stream record here for creation,
+            # because we haven't attached important M2M relations yet, like
+            # credentials and labels
+            unified_job.save()
 
         # Labels and credentials copied here
         if validated_kwargs.get('credentials'):
@@ -380,7 +393,6 @@ class UnifiedJobTemplate(PolymorphicModel, CommonModelNameNotUnique, Notificatio
             validated_kwargs['credentials'] = [cred for cred in cred_dict.values()]
             kwargs['credentials'] = validated_kwargs['credentials']
 
-        from awx.main.signals import disable_activity_stream
         with disable_activity_stream():
             copy_m2m_relationships(self, unified_job, fields, kwargs=validated_kwargs)
 
@@ -390,6 +402,11 @@ class UnifiedJobTemplate(PolymorphicModel, CommonModelNameNotUnique, Notificatio
         if not getattr(self, '_deprecated_credential_launch', False):
             # Create record of provided prompts for relaunch and rescheduling
             unified_job.create_config_from_prompts(kwargs, parent=self)
+
+        # manually issue the create activity stream entry _after_ M2M relations
+        # have been associated to the UJ
+        if unified_job.__class__ in activity_stream_registrar.models:
+            activity_stream_create(None, unified_job, True)
 
         return unified_job
 
@@ -681,9 +698,9 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
     )
 
     def get_absolute_url(self, request=None):
-        real_instance = self.get_real_instance()
-        if real_instance != self:
-            return real_instance.get_absolute_url(request=request)
+        RealClass = self.get_real_instance_class()
+        if RealClass != UnifiedJob:
+            return RealClass.get_absolute_url(RealClass(pk=self.pk), request=request)
         else:
             return ''
 
@@ -719,7 +736,7 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
     def _resources_sufficient_for_launch(self):
         return True
 
-    def __unicode__(self):
+    def __str__(self):
         return u'%s-%s-%s' % (self.created, self.id, self.status)
 
     @property
@@ -884,7 +901,7 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
             parent = getattr(self, self._get_parent_field_name())
         if parent is None:
             return
-        valid_fields = parent.get_ask_mapping().keys()
+        valid_fields = list(parent.get_ask_mapping().keys())
         # Special cases allowed for workflows
         if hasattr(self, 'extra_vars'):
             valid_fields.extend(['survey_passwords', 'extra_vars'])
@@ -975,9 +992,11 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
             if not os.path.exists(settings.JOBOUTPUT_ROOT):
                 os.makedirs(settings.JOBOUTPUT_ROOT)
             fd = tempfile.NamedTemporaryFile(
+                mode='w',
                 prefix='{}-{}-'.format(self.model_to_str(), self.pk),
                 suffix='.out',
-                dir=settings.JOBOUTPUT_ROOT
+                dir=settings.JOBOUTPUT_ROOT,
+                encoding='utf-8'
             )
 
         # Before the addition of event-based stdout, older versions of
@@ -992,7 +1011,7 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
             fd.write(legacy_stdout_text)
             if hasattr(fd, 'name'):
                 fd.flush()
-                return open(fd.name, 'r')
+                return codecs.open(fd.name, 'r', encoding='utf-8')
             else:
                 # we just wrote to this StringIO, so rewind it
                 fd.seek(0)
@@ -1014,9 +1033,15 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
                     # don't bother actually fetching the data
                     total = self.get_event_queryset().aggregate(
                         total=models.Sum(models.Func(models.F('stdout'), function='LENGTH'))
-                    )['total']
+                    )['total'] or 0
                     if total > max_supported:
                         raise StdoutMaxBytesExceeded(total, max_supported)
+
+                # psycopg2's copy_expert writes bytes, but callers of this
+                # function assume a str-based fd will be returned; decode
+                # .write() calls on the fly to maintain this interface
+                _write = fd.write
+                fd.write = lambda s: _write(smart_text(s))
 
                 cursor.copy_expert(
                     "copy (select stdout from {} where {}={} order by start_line) to stdout".format(
@@ -1032,7 +1057,7 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
                     # up escaped line sequences
                     fd.flush()
                     subprocess.Popen("sed -i 's/\\\\r\\\\n/\\n/g' {}".format(fd.name), shell=True).wait()
-                    return open(fd.name, 'r')
+                    return codecs.open(fd.name, 'r', encoding='utf-8')
                 else:
                     # If we're dealing with an in-memory string buffer, use
                     # string.replace()
@@ -1047,7 +1072,7 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
         return content
 
     def _result_stdout_raw(self, redact_sensitive=False, escape_ascii=False):
-        content = self.result_stdout_raw_handle().read().decode('utf-8')
+        content = self.result_stdout_raw_handle().read()
         if redact_sensitive:
             content = UriCleaner.remove_sensitive(content)
         if escape_ascii:
@@ -1080,7 +1105,7 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
             else:
                 end_actual = len(stdout_lines)
 
-        return_buffer = return_buffer.getvalue().decode('utf-8')
+        return_buffer = return_buffer.getvalue()
         if redact_sensitive:
             return_buffer = UriCleaner.remove_sensitive(return_buffer)
         if escape_ascii:
@@ -1245,8 +1270,7 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
         self.update_fields(start_args=json.dumps(kwargs), status='pending')
         self.websocket_emit_status("pending")
 
-        from awx.main.scheduler.tasks import run_job_launch
-        connection.on_commit(lambda: run_job_launch.delay(self.id))
+        schedule_task_manager()
 
         # Each type of unified job has a different Task class; get the
         # appropirate one.
@@ -1280,9 +1304,9 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
                     'dispatcher', self.execution_node
                 ).running(timeout=timeout)
             except socket.timeout:
-                logger.error(six.text_type(
-                    'could not reach dispatcher on {} within {}s'
-                ).format(self.execution_node, timeout))
+                logger.error('could not reach dispatcher on {} within {}s'.format(
+                    self.execution_node, timeout
+                ))
                 running = False
         return running
 
@@ -1299,7 +1323,8 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
     def cancel(self, job_explanation=None, is_chain=False):
         if self.can_cancel:
             if not is_chain:
-                map(lambda x: x.cancel(job_explanation=self._build_job_explanation(), is_chain=True), self.get_jobs_fail_chain())
+                for x in self.get_jobs_fail_chain():
+                    x.cancel(job_explanation=self._build_job_explanation(), is_chain=True)
 
             if not self.cancel_flag:
                 self.cancel_flag = True
@@ -1348,14 +1373,13 @@ class UnifiedJob(PolymorphicModel, PasswordFieldsModel, CommonModelNameNotUnique
 
         created_by = getattr_dne(self, 'created_by')
 
-        if not created_by:
-            wj = self.get_workflow_job()
-            if wj:
-                for name in ('awx', 'tower'):
-                    r['{}_workflow_job_id'.format(name)] = wj.pk
-                    r['{}_workflow_job_name'.format(name)] = wj.name
-                created_by = getattr_dne(wj, 'created_by')
+        wj = self.get_workflow_job()
+        if wj:
+            for name in ('awx', 'tower'):
+                r['{}_workflow_job_id'.format(name)] = wj.pk
+                r['{}_workflow_job_name'.format(name)] = wj.name
 
+        if not created_by:
             schedule = getattr_dne(self, 'schedule')
             if schedule:
                 for name in ('awx', 'tower'):

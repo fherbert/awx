@@ -14,7 +14,6 @@ import prompt from './prompt/main';
 import workflowChart from './workflows/workflow-chart/main';
 import workflowMaker from './workflows/workflow-maker/main';
 import workflowControls from './workflows/workflow-controls/main';
-import workflowService from './workflows/workflow.service';
 import WorkflowForm from './workflows.form';
 import InventorySourcesList from './inventory-sources.list';
 import TemplateList from './templates.list';
@@ -35,7 +34,6 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
         workflowChart.name, workflowMaker.name, workflowControls.name
     ])
     .service('TemplatesService', templatesService)
-    .service('WorkflowService', workflowService)
     .factory('WorkflowForm', WorkflowForm)
     // TODO: currently being kept arround for rbac selection, templates within projects and orgs, etc.
     .factory('TemplateList', TemplateList)
@@ -59,8 +57,8 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                     },
                     resolve: {
                         add: {
-                            Inventory: ['$stateParams', 'Rest', 'GetBasePath', 'ProcessErrors',
-                                function($stateParams, Rest, GetBasePath, ProcessErrors){
+                            Inventory: ['$stateParams', 'Rest', 'GetBasePath', 'ProcessErrors', 'i18n',
+                                function($stateParams, Rest, GetBasePath, ProcessErrors, i18n){
                                     if($stateParams.inventory_id){
                                         let path = `${GetBasePath('inventory')}${$stateParams.inventory_id}`;
                                         Rest.setUrl(path);
@@ -69,15 +67,15 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                                 return data.data;
                                             }).catch(function(response) {
                                                 ProcessErrors(null, response.data, response.status, null, {
-                                                    hdr: 'Error!',
-                                                    msg: 'Failed to get inventory info. GET returned status: ' +
+                                                    hdr: i18n._('Error!'),
+                                                    msg: i18n._('Failed to get inventory info. GET returned status: ') +
                                                         response.status
                                                 });
                                             });
                                     }
                             }],
-                            Project: ['Rest', 'GetBasePath', 'ProcessErrors', '$transition$',
-                                function(Rest, GetBasePath, ProcessErrors, $transition$){
+                            Project: ['Rest', 'GetBasePath', 'ProcessErrors', '$transition$', 'i18n',
+                                function(Rest, GetBasePath, ProcessErrors, $transition$, i18n){
                                     if($transition$.params().credential_id){
                                         let path = `${GetBasePath('projects')}?credential__id=${Number($transition$.params().credential_id)}`;
                                         Rest.setUrl(path);
@@ -86,8 +84,8 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                                 return data.data.results[0];
                                             }).catch(function(response) {
                                                 ProcessErrors(null, response.data, response.status, null, {
-                                                    hdr: 'Error!',
-                                                    msg: 'Failed to get project info. GET returned status: ' +
+                                                    hdr: i18n._('Error!'),
+                                                    msg: i18n._('Failed to get project info. GET returned status: ') +
                                                         response.status
                                                 });
                                             });
@@ -100,50 +98,49 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                                 return data.data;
                                             }).catch(function(response) {
                                                 ProcessErrors(null, response.data, response.status, null, {
-                                                    hdr: 'Error!',
-                                                    msg: 'Failed to get project info. GET returned status: ' +
+                                                    hdr: i18n._('Error!'),
+                                                    msg: i18n._('Failed to get project info. GET returned status: ') +
                                                         response.status
                                                 });
                                             });
                                     }
                             }],
-                            availableLabels: ['ProcessErrors', 'TemplatesService',
-                                function(ProcessErrors, TemplatesService) {
+                            availableLabels: ['ProcessErrors', 'TemplatesService', 'i18n',
+                                function(ProcessErrors, TemplatesService, i18n) {
                                     return TemplatesService.getAllLabelOptions()
                                         .then(function(labels){
                                             return labels;
                                         }).catch(function(response){
                                             ProcessErrors(null, response.data, response.status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get labels. GET returned status: ' +
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get labels. GET returned status: ') +
                                                     response.status
                                             });
                                         });
                             }],
-                            checkPermissions: ['Rest', 'GetBasePath', 'TemplatesService', 'Alert', 'ProcessErrors', '$state',
-                                function(Rest, GetBasePath, TemplatesService, Alert, ProcessErrors, $state) {
+                            checkPermissions: ['TemplatesService', 'Alert', 'ProcessErrors', '$state', 'i18n',
+                                function(TemplatesService, Alert, ProcessErrors, $state, i18n) {
                                     return TemplatesService.getJobTemplateOptions()
                                         .then(function(data) {
                                             if (!data.actions.POST) {
                                                 $state.go("^");
-                                                Alert('Permission Error', 'You do not have permission to add a job template.', 'alert-info');
+                                                Alert(i18n._('Permission Error'), i18n._('You do not have permission to add a job template.'), 'alert-info');
                                             }
                                         }).catch(function(response){
                                             ProcessErrors(null, response.data, response.status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get job template options. OPTIONS returned status: ' +
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get job template options. OPTIONS returned status: ') +
                                                     response.status
                                             });
                                         });
                             }],
-                            ConfigData: ['ConfigService', 'ProcessErrors', (ConfigService, ProcessErrors) => {
+                            ConfigData: ['ConfigService', 'ProcessErrors', 'i18n', (ConfigService, ProcessErrors, i18n) => {
                                 return ConfigService.getConfig()
                                     .then(response => response)
                                     .catch(({data, status}) => {
                                         ProcessErrors(null, data, status, null, {
-                                            hdr: 'Error!',
-                                            msg: 'Failed to get config. GET returned status: ' +
-                                                'status: ' + status
+                                            hdr: i18n._('Error!'),
+                                            msg: i18n._('Failed to get config. GET returned status: ') + status
                                         });
                                     });
                             }]
@@ -169,21 +166,21 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                     },
                     resolve: {
                         edit: {
-                            jobTemplateData: ['$stateParams', 'TemplatesService', 'ProcessErrors',
-                                function($stateParams, TemplatesService, ProcessErrors) {
+                            jobTemplateData: ['$stateParams', 'TemplatesService', 'ProcessErrors', 'i18n',
+                                function($stateParams, TemplatesService, ProcessErrors, i18n) {
                                     return TemplatesService.getJobTemplate($stateParams.job_template_id)
                                         .then(function(res) {
                                             return res.data;
                                         }).catch(function(response){
                                             ProcessErrors(null, response.data, response.status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get job template. GET returned status: ' +
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get job template. GET returned status: ') +
                                                     response.status
                                             });
                                         });
                             }],
-                            projectGetPermissionDenied: ['Rest', 'ProcessErrors', 'jobTemplateData',
-                                function(Rest, ProcessErrors, jobTemplateData) {
+                            projectGetPermissionDenied: ['Rest', 'ProcessErrors', 'jobTemplateData', 'i18n',
+                                function(Rest, ProcessErrors, jobTemplateData, i18n) {
                                     if(jobTemplateData.related.project) {
                                         Rest.setUrl(jobTemplateData.related.project);
                                         return Rest.get()
@@ -193,9 +190,8 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                             .catch(({data, status}) => {
                                                 if (status !== 403) {
                                                     ProcessErrors(null, data, status, null, {
-                                                        hdr: 'Error!',
-                                                        msg: 'Failed to get project. GET returned ' +
-                                                            'status: ' + status
+                                                        hdr: i18n._('Error!'),
+                                                        msg: i18n._('Failed to get project. GET returned status: ') + status
                                                     });
                                                     return false;
                                                 }
@@ -208,8 +204,8 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                         return false;
                                     }
                             }],
-                            inventoryGetPermissionDenied: ['Rest', 'ProcessErrors', 'jobTemplateData',
-                                function(Rest, ProcessErrors, jobTemplateData) {
+                            inventoryGetPermissionDenied: ['Rest', 'ProcessErrors', 'jobTemplateData', 'i18n',
+                                function(Rest, ProcessErrors, jobTemplateData, i18n) {
                                     if(jobTemplateData.related.inventory) {
                                         Rest.setUrl(jobTemplateData.related.inventory);
                                         return Rest.get()
@@ -219,9 +215,8 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                             .catch(({data, status}) => {
                                                 if (status !== 403) {
                                                     ProcessErrors(null, data, status, null, {
-                                                        hdr: 'Error!',
-                                                        msg: 'Failed to get project. GET returned ' +
-                                                            'status: ' + status
+                                                        hdr: i18n._('Error!'),
+                                                        msg: i18n._('Failed to get project. GET returned status: ') + status
                                                     });
                                                     return false;
                                                 }
@@ -234,8 +229,8 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                         return false;
                                     }
                             }],
-                            InstanceGroupsData: ['$stateParams', 'Rest', 'GetBasePath', 'ProcessErrors',
-                                function($stateParams, Rest, GetBasePath, ProcessErrors){
+                            InstanceGroupsData: ['$stateParams', 'Rest', 'GetBasePath', 'ProcessErrors', 'i18n',
+                                function($stateParams, Rest, GetBasePath, ProcessErrors, i18n){
                                     let path = `${GetBasePath('job_templates')}${$stateParams.job_template_id}/instance_groups/`;
                                     Rest.setUrl(path);
                                     return Rest.get()
@@ -246,47 +241,59 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                         })
                                         .catch(({data, status}) => {
                                             ProcessErrors(null, data, status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get instance groups. GET returned ' +
-                                                    'status: ' + status
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get instance groups. GET returned status: ') + status
                                             });
                                     });
                                 }],
-                            availableLabels: ['Rest', '$stateParams', 'GetBasePath', 'ProcessErrors', 'TemplatesService',
-                                function(Rest, $stateParams, GetBasePath, ProcessErrors, TemplatesService) {
+                            availableLabels: ['ProcessErrors', 'TemplatesService', 'i18n',
+                                function(ProcessErrors, TemplatesService, i18n) {
                                     return TemplatesService.getAllLabelOptions()
                                         .then(function(labels){
                                             return labels;
                                         }).catch(function(response){
                                             ProcessErrors(null, response.data, response.status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get labels. GET returned status: ' +
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get labels. GET returned status: ') +
                                                     response.status
                                             });
                                         });
                             }],
-                            selectedLabels: ['Rest', '$stateParams', 'GetBasePath', 'TemplatesService', 'ProcessErrors',
-                                function(Rest, $stateParams, GetBasePath, TemplatesService, ProcessErrors) {
+                            selectedLabels: ['$stateParams', 'TemplatesService', 'ProcessErrors', 'i18n',
+                                function($stateParams, TemplatesService, ProcessErrors, i18n) {
                                     return TemplatesService.getAllJobTemplateLabels($stateParams.job_template_id)
                                         .then(function(labels){
                                             return labels;
                                         }).catch(function(response){
                                             ProcessErrors(null, response.data, response.status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get workflow job template labels. GET returned status: ' +
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get workflow job template labels. GET returned status: ') +
                                                     response.status
                                             });
                                         });
                             }],
-                            ConfigData: ['ConfigService', 'ProcessErrors', (ConfigService, ProcessErrors) => {
+                            ConfigData: ['ConfigService', 'ProcessErrors', 'i18n', (ConfigService, ProcessErrors, i18n) => {
                                 return ConfigService.getConfig()
                                     .then(response => response)
                                     .catch(({data, status}) => {
                                         ProcessErrors(null, data, status, null, {
-                                            hdr: 'Error!',
-                                            msg: 'Failed to get config. GET returned status: ' +
-                                                'status: ' + status
+                                            hdr: i18n._('Error!'),
+                                            msg: i18n._('Failed to get config. GET returned status: ') + status
                                         });
+                                    });
+                            }],
+                            isNotificationAdmin: ['Rest', 'ProcessErrors', 'GetBasePath', 'i18n',
+                                function(Rest, ProcessErrors, GetBasePath, i18n) {
+                                    Rest.setUrl(`${GetBasePath('organizations')}?role_level=notification_admin_role&page_size=1`);
+                                    return Rest.get()
+                                        .then(({data}) => {
+                                            return data.count > 0;
+                                        })
+                                        .catch(({data, status}) => {
+                                            ProcessErrors(null, data, status, null, {
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get organizations for which this user is a notification administrator. GET returned ') + status
+                                            });
                                     });
                             }]
                         }
@@ -303,31 +310,48 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                     },
                     resolve: {
                         add: {
-                            availableLabels: ['Rest', '$stateParams', 'GetBasePath', 'ProcessErrors', 'TemplatesService',
-                                function(Rest, $stateParams, GetBasePath, ProcessErrors, TemplatesService) {
+                            Inventory: ['$stateParams', 'Rest', 'GetBasePath', 'ProcessErrors', 'i18n',
+                                function($stateParams, Rest, GetBasePath, ProcessErrors, i18n){
+                                    if($stateParams.inventory_id){
+                                        let path = `${GetBasePath('inventory')}${$stateParams.inventory_id}`;
+                                        Rest.setUrl(path);
+                                        return Rest.get().
+                                            then(function(data){
+                                                return data.data;
+                                            }).catch(function(response) {
+                                                ProcessErrors(null, response.data, response.status, null, {
+                                                    hdr: i18n._('Error!'),
+                                                    msg: i18n._('Failed to get inventory info. GET returned status: ') +
+                                                        response.status
+                                                });
+                                            });
+                                    }
+                            }],
+                            availableLabels: ['ProcessErrors', 'TemplatesService', 'i18n',
+                                function(ProcessErrors, TemplatesService, i18n) {
                                     return TemplatesService.getAllLabelOptions()
                                         .then(function(labels){
                                             return labels;
                                         }).catch(function(response){
                                             ProcessErrors(null, response.data, response.status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get labels. GET returned status: ' +
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get labels. GET returned status: ') +
                                                     response.status
                                             });
                                         });
                             }],
-                            checkPermissions: ['Rest', 'GetBasePath', 'TemplatesService', 'Alert', 'ProcessErrors', '$state',
-                                function(Rest, GetBasePath, TemplatesService, Alert, ProcessErrors, $state) {
+                            checkPermissions: ['TemplatesService', 'Alert', 'ProcessErrors', '$state', 'i18n',
+                                function(TemplatesService, Alert, ProcessErrors, $state, i18n) {
                                     return TemplatesService.getWorkflowJobTemplateOptions()
                                         .then(function(data) {
                                             if (!data.actions.POST) {
                                                 $state.go("^");
-                                                Alert('Permission Error', 'You do not have permission to add a workflow job template.', 'alert-info');
+                                                Alert(i18n._('Permission Error'), i18n._('You do not have permission to add a workflow job template.'), 'alert-info');
                                             }
                                         }).catch(function(response){
                                             ProcessErrors(null, response.data, response.status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get workflow job template options. OPTIONS returned status: ' +
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get workflow job template options. OPTIONS returned status: ') +
                                                     response.status
                                             });
                                         });
@@ -354,41 +378,58 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                     },
                     resolve: {
                         edit: {
-                            availableLabels: ['Rest', '$stateParams', 'GetBasePath', 'ProcessErrors', 'TemplatesService',
-                                function(Rest, $stateParams, GetBasePath, ProcessErrors, TemplatesService) {
+                            Inventory: ['$stateParams', 'Rest', 'GetBasePath', 'ProcessErrors', 'i18n',
+                                function($stateParams, Rest, GetBasePath, ProcessErrors, i18n){
+                                    if($stateParams.inventory_id){
+                                        let path = `${GetBasePath('inventory')}${$stateParams.inventory_id}`;
+                                        Rest.setUrl(path);
+                                        return Rest.get().
+                                            then(function(data){
+                                                return data.data;
+                                            }).catch(function(response) {
+                                                ProcessErrors(null, response.data, response.status, null, {
+                                                    hdr: i18n._('Error!'),
+                                                    msg: i18n._('Failed to get inventory info. GET returned status: ') +
+                                                        response.status
+                                                });
+                                            });
+                                    }
+                            }],
+                            availableLabels: ['ProcessErrors', 'TemplatesService', 'i18n',
+                                function(ProcessErrors, TemplatesService, i18n) {
                                     return TemplatesService.getAllLabelOptions()
                                         .then(function(labels){
                                             return labels;
                                         }).catch(function(response){
                                             ProcessErrors(null, response.data, response.status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get labels. GET returned status: ' +
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get labels. GET returned status: ') +
                                                     response.status
                                             });
                                         });
                             }],
-                            selectedLabels: ['Rest', '$stateParams', 'GetBasePath', 'TemplatesService', 'ProcessErrors',
-                                function(Rest, $stateParams, GetBasePath, TemplatesService, ProcessErrors) {
+                            selectedLabels: ['$stateParams', 'TemplatesService', 'ProcessErrors', 'i18n',
+                                function($stateParams, TemplatesService, ProcessErrors, i18n) {
                                     return TemplatesService.getAllWorkflowJobTemplateLabels($stateParams.workflow_job_template_id)
                                         .then(function(labels){
                                             return labels;
                                         }).catch(function(response){
                                             ProcessErrors(null, response.data, response.status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get workflow job template labels. GET returned status: ' +
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get workflow job template labels. GET returned status: ') +
                                                     response.status
                                             });
                                         });
                             }],
-                            workflowJobTemplateData: ['$stateParams', 'TemplatesService', 'ProcessErrors',
-                                function($stateParams, TemplatesService, ProcessErrors) {
+                            workflowJobTemplateData: ['$stateParams', 'TemplatesService', 'ProcessErrors', 'i18n',
+                                function($stateParams, TemplatesService, ProcessErrors, i18n) {
                                     return TemplatesService.getWorkflowJobTemplate($stateParams.workflow_job_template_id)
                                         .then(function(res) {
                                             return res.data;
                                         }).catch(function(response){
                                             ProcessErrors(null, response.data, response.status, null, {
-                                                hdr: 'Error!',
-                                                msg: 'Failed to get workflow job template. GET returned status: ' +
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get workflow job template. GET returned status: ') +
                                                     response.status
                                             });
                                         });
@@ -401,6 +442,20 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                         .then(({data}) => {
                                             return data;
                                         });
+                            }],
+                            isNotificationAdmin: ['Rest', 'ProcessErrors', 'GetBasePath', 'i18n',
+                                function(Rest, ProcessErrors, GetBasePath, i18n) {
+                                    Rest.setUrl(`${GetBasePath('organizations')}?role_level=notification_admin_role&page_size=1`);
+                                    return Rest.get()
+                                        .then(({data}) => {
+                                            return data.count > 0;
+                                        })
+                                        .catch(({data, status}) => {
+                                            ProcessErrors(null, data, status, null, {
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get organizations for which this user is a notification administrator. GET returned ') + status
+                                            });
+                                    });
                             }]
                         }
                     }
@@ -409,34 +464,33 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                 workflowMaker = {
                     name: 'templates.editWorkflowJobTemplate.workflowMaker',
                     url: '/workflow-maker',
-                    // ncyBreadcrumb: {
-                    //     label: 'WORKFLOW MAKER'
-                    // },
                     data: {
                         formChildState: true
                     },
                     params: {
-                        job_template_search: {
+                        wf_maker_template_search: {
                             value: {
-                                page_size: '5',
-                                order_by: 'name'
+                                order_by: 'name',
+                                page_size: '10',
+                                role_level: 'execute_role',
+                                type: 'workflow_job_template,job_template'
                             },
                             squash: false,
                             dynamic: true
                         },
-                        project_search: {
+                        wf_maker_project_search: {
                             value: {
-                                page_size: '5',
-                                order_by: 'name'
+                                order_by: 'name',
+                                page_size: '10'
                             },
                             squash: true,
                             dynamic: true
                         },
-                        inventory_source_search: {
+                        wf_maker_inventory_source_search: {
                             value: {
-                                page_size: '5',
                                 not__source: '',
-                                order_by: 'name'
+                                order_by: 'name',
+                                page_size: '10'
                             },
                             squash: true,
                             dynamic: true
@@ -467,14 +521,14 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                         $scope[`${list.iterator}_dataset`] = Dataset.data;
                                         $scope[list.name] = $scope[`${list.iterator}_dataset`].results;
 
-                                        $scope.$watch('job_templates', function(){
+                                        $scope.$watch('wf_maker_templates', function(){
                                             if($scope.selectedTemplate){
-                                                $scope.job_templates.forEach(function(row, i) {
+                                                $scope.wf_maker_templates.forEach(function(row, i) {
                                                     if(row.id === $scope.selectedTemplate.id) {
-                                                        $scope.job_templates[i].checked = 1;
+                                                        $scope.wf_maker_templates[i].checked = 1;
                                                     }
                                                     else {
-                                                        $scope.job_templates[i].checked = 0;
+                                                        $scope.wf_maker_templates[i].checked = 0;
                                                     }
                                                 });
                                             }
@@ -483,9 +537,9 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
 
                                     $scope.toggle_row = function(selectedRow) {
                                         if ($scope.workflowJobTemplateObj.summary_fields.user_capabilities.edit) {
-                                            $scope.job_templates.forEach(function(row, i) {
+                                            $scope.wf_maker_templates.forEach(function(row, i) {
                                                 if (row.id === selectedRow.id) {
-                                                    $scope.job_templates[i].checked = 1;
+                                                    $scope.wf_maker_templates[i].checked = 1;
                                                     $scope.selection[list.iterator] = {
                                                         id: row.id,
                                                         name: row.name
@@ -498,27 +552,27 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                     };
 
                                     $scope.$watch('selectedTemplate', () => {
-                                        $scope.job_templates.forEach(function(row, i) {
+                                        $scope.wf_maker_templates.forEach(function(row, i) {
                                             if(_.has($scope, 'selectedTemplate.id') && row.id === $scope.selectedTemplate.id) {
-                                                $scope.job_templates[i].checked = 1;
+                                                $scope.wf_maker_templates[i].checked = 1;
                                             }
                                             else {
-                                                $scope.job_templates[i].checked = 0;
+                                                $scope.wf_maker_templates[i].checked = 0;
                                             }
                                         });
                                     });
 
                                     $scope.$watch('activeTab', () => {
                                         if(!$scope.activeTab || $scope.activeTab !== "jobs") {
-                                            $scope.job_templates.forEach(function(row, i) {
-                                                $scope.job_templates[i].checked = 0;
+                                            $scope.wf_maker_templates.forEach(function(row, i) {
+                                                $scope.wf_maker_templates[i].checked = 0;
                                             });
                                         }
                                     });
 
                                     $scope.$on('clearWorkflowLists', function() {
-                                        $scope.job_templates.forEach(function(row, i) {
-                                            $scope.job_templates[i].checked = 0;
+                                        $scope.wf_maker_templates.forEach(function(row, i) {
+                                            $scope.wf_maker_templates[i].checked = 0;
                                         });
                                     });
                                 }
@@ -544,14 +598,14 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                         $scope[`${list.iterator}_dataset`] = Dataset.data;
                                         $scope[list.name] = $scope[`${list.iterator}_dataset`].results;
 
-                                        $scope.$watch('workflow_inventory_sources', function(){
+                                        $scope.$watch('wf_maker_inventory_sources', function(){
                                             if($scope.selectedTemplate){
-                                                $scope.workflow_inventory_sources.forEach(function(row, i) {
+                                                $scope.wf_maker_inventory_sources.forEach(function(row, i) {
                                                     if(row.id === $scope.selectedTemplate.id) {
-                                                        $scope.workflow_inventory_sources[i].checked = 1;
+                                                        $scope.wf_maker_inventory_sources[i].checked = 1;
                                                     }
                                                     else {
-                                                        $scope.workflow_inventory_sources[i].checked = 0;
+                                                        $scope.wf_maker_inventory_sources[i].checked = 0;
                                                     }
                                                 });
                                             }
@@ -560,9 +614,9 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
 
                                     $scope.toggle_row = function(selectedRow) {
                                         if ($scope.workflowJobTemplateObj.summary_fields.user_capabilities.edit) {
-                                            $scope.workflow_inventory_sources.forEach(function(row, i) {
+                                            $scope.wf_maker_inventory_sources.forEach(function(row, i) {
                                                 if (row.id === selectedRow.id) {
-                                                    $scope.workflow_inventory_sources[i].checked = 1;
+                                                    $scope.wf_maker_inventory_sources[i].checked = 1;
                                                     $scope.selection[list.iterator] = {
                                                         id: row.id,
                                                         name: row.name
@@ -575,27 +629,27 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                     };
 
                                     $scope.$watch('selectedTemplate', () => {
-                                        $scope.workflow_inventory_sources.forEach(function(row, i) {
-                                            if(_.has($scope, 'selectedTemplate.id') && row.id === $scope.selectedTemplate.id) {
-                                                $scope.workflow_inventory_sources[i].checked = 1;
+                                        $scope.wf_maker_inventory_sources.forEach(function(row, i) {
+                                            if(_.hasIn($scope, 'selectedTemplate.id') && row.id === $scope.selectedTemplate.id) {
+                                                $scope.wf_maker_inventory_sources[i].checked = 1;
                                             }
                                             else {
-                                                $scope.workflow_inventory_sources[i].checked = 0;
+                                                $scope.wf_maker_inventory_sources[i].checked = 0;
                                             }
                                         });
                                     });
 
                                     $scope.$watch('activeTab', () => {
                                         if(!$scope.activeTab || $scope.activeTab !== "inventory_sync") {
-                                            $scope.workflow_inventory_sources.forEach(function(row, i) {
-                                                $scope.workflow_inventory_sources[i].checked = 0;
+                                            $scope.wf_maker_inventory_sources.forEach(function(row, i) {
+                                                $scope.wf_maker_inventory_sources[i].checked = 0;
                                             });
                                         }
                                     });
 
                                     $scope.$on('clearWorkflowLists', function() {
-                                        $scope.workflow_inventory_sources.forEach(function(row, i) {
-                                            $scope.workflow_inventory_sources[i].checked = 0;
+                                        $scope.wf_maker_inventory_sources.forEach(function(row, i) {
+                                            $scope.wf_maker_inventory_sources[i].checked = 0;
                                         });
                                     });
                                 }
@@ -621,14 +675,14 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                         $scope[`${list.iterator}_dataset`] = Dataset.data;
                                         $scope[list.name] = $scope[`${list.iterator}_dataset`].results;
 
-                                        $scope.$watch('projects', function(){
+                                        $scope.$watch('wf_maker_projects', function(){
                                             if($scope.selectedTemplate){
-                                                $scope.projects.forEach(function(row, i) {
+                                                $scope.wf_maker_projects.forEach(function(row, i) {
                                                     if(row.id === $scope.selectedTemplate.id) {
-                                                        $scope.projects[i].checked = 1;
+                                                        $scope.wf_maker_projects[i].checked = 1;
                                                     }
                                                     else {
-                                                        $scope.projects[i].checked = 0;
+                                                        $scope.wf_maker_projects[i].checked = 0;
                                                     }
                                                 });
                                             }
@@ -637,9 +691,9 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
 
                                     $scope.toggle_row = function(selectedRow) {
                                         if ($scope.workflowJobTemplateObj.summary_fields.user_capabilities.edit) {
-                                            $scope.projects.forEach(function(row, i) {
+                                            $scope.wf_maker_projects.forEach(function(row, i) {
                                                 if (row.id === selectedRow.id) {
-                                                    $scope.projects[i].checked = 1;
+                                                    $scope.wf_maker_projects[i].checked = 1;
                                                     $scope.selection[list.iterator] = {
                                                         id: row.id,
                                                         name: row.name
@@ -652,27 +706,27 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                     };
 
                                     $scope.$watch('selectedTemplate', () => {
-                                        $scope.projects.forEach(function(row, i) {
-                                            if(_.has($scope, 'selectedTemplate.id') && row.id === $scope.selectedTemplate.id) {
-                                                $scope.projects[i].checked = 1;
+                                        $scope.wf_maker_projects.forEach(function(row, i) {
+                                            if(_.hasIn($scope, 'selectedTemplate.id') && row.id === $scope.selectedTemplate.id) {
+                                                $scope.wf_maker_projects[i].checked = 1;
                                             }
                                             else {
-                                                $scope.projects[i].checked = 0;
+                                                $scope.wf_maker_projects[i].checked = 0;
                                             }
                                         });
                                     });
 
                                     $scope.$watch('activeTab', () => {
                                         if(!$scope.activeTab || $scope.activeTab !== "project_sync") {
-                                            $scope.projects.forEach(function(row, i) {
-                                                $scope.projects[i].checked = 0;
+                                            $scope.wf_maker_projects.forEach(function(row, i) {
+                                                $scope.wf_maker_projects[i].checked = 0;
                                             });
                                         }
                                     });
 
                                     $scope.$on('clearWorkflowLists', function() {
-                                        $scope.projects.forEach(function(row, i) {
-                                            $scope.projects[i].checked = 0;
+                                        $scope.wf_maker_projects.forEach(function(row, i) {
+                                            $scope.wf_maker_projects[i].checked = 0;
                                         });
                                     });
                                 }
@@ -698,8 +752,8 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                 return qs.search(path, $stateParams[`${list.iterator}_search`]);
                             }
                         ],
-                        WorkflowMakerJobTemplateList: ['TemplateList',
-                            (TemplateList) => {
+                        WorkflowMakerJobTemplateList: ['TemplateList', 'i18n',
+                            (TemplateList, i18n) => {
                                 let list = _.cloneDeep(TemplateList);
                                 delete list.actions;
                                 delete list.fields.type;
@@ -707,16 +761,19 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                 delete list.fields.smart_status;
                                 delete list.fields.labels;
                                 delete list.fieldActions;
+                                list.name = 'wf_maker_templates';
+                                list.iterator = 'wf_maker_template';
                                 list.fields.name.columnClass = "col-md-8";
+                                list.fields.name.tag = i18n._('WORKFLOW');
+                                list.fields.name.showTag = "{{wf_maker_template.type === 'workflow_job_template'}}";
                                 list.disableRow = "{{ !workflowJobTemplateObj.summary_fields.user_capabilities.edit }}";
                                 list.disableRowValue = '!workflowJobTemplateObj.summary_fields.user_capabilities.edit';
-                                list.iterator = 'job_template';
-                                list.name = 'job_templates';
-                                list.basePath = "job_templates";
+                                list.basePath = 'unified_job_templates';
                                 list.fields.info = {
                                     ngInclude: "'/static/partials/job-template-details.html'",
                                     type: 'template',
                                     columnClass: 'col-md-3',
+                                    infoHeaderClass: 'col-md-3',
                                     label: '',
                                     nosort: true
                                 };
@@ -732,6 +789,8 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                                 delete list.fields.status;
                                 delete list.fields.scm_type;
                                 delete list.fields.last_updated;
+                                list.name = 'wf_maker_projects';
+                                list.iterator = 'wf_maker_project';
                                 list.fields.name.columnClass = "col-md-11";
                                 list.maxVisiblePages = 5;
                                 list.searchBarFullWidth = true;
@@ -744,6 +803,8 @@ angular.module('templates', [surveyMaker.name, jobTemplates.name, labels.name, p
                         WorkflowInventorySourcesList: ['InventorySourcesList',
                             (InventorySourcesList) => {
                                 let list = _.cloneDeep(InventorySourcesList);
+                                list.name = 'wf_maker_inventory_sources';
+                                list.iterator = 'wf_maker_inventory_source';
                                 list.maxVisiblePages = 5;
                                 list.searchBarFullWidth = true;
                                 list.disableRow = "{{ !workflowJobTemplateObj.summary_fields.user_capabilities.edit }}";

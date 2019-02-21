@@ -3,6 +3,7 @@ import multiprocessing
 import random
 import signal
 import time
+from unittest import mock
 
 from django.utils.timezone import now as tz_now
 import pytest
@@ -14,6 +15,10 @@ from awx.main.dispatch.publish import task
 from awx.main.dispatch.worker import BaseWorker, TaskWorker
 
 
+def restricted(a, b):
+    raise AssertionError("This code should not run because it isn't decorated with @task")
+
+
 @task()
 def add(a, b):
     return a + b
@@ -23,6 +28,11 @@ class BaseTask(object):
 
     def add(self, a, b):
         return add(a, b)
+
+
+class Restricted(object):
+    def run(self, a, b):
+        raise AssertionError("This code should not run because it isn't decorated with @task")
 
 
 @task()
@@ -191,7 +201,9 @@ class TestAutoScaling:
         assert len(self.pool) == 10
 
         # cleanup should scale down to 8 workers
-        self.pool.cleanup()
+        with mock.patch('awx.main.dispatch.reaper.reap') as reap:
+            self.pool.cleanup()
+        reap.assert_called()
         assert len(self.pool) == 2
 
     def test_max_scale_up(self):
@@ -239,7 +251,9 @@ class TestAutoScaling:
         time.sleep(1)  # wait a moment for sigterm
 
         # clean up and the dead worker
-        self.pool.cleanup()
+        with mock.patch('awx.main.dispatch.reaper.reap') as reap:
+            self.pool.cleanup()
+        reap.assert_called()
         assert len(self.pool) == 1
         assert self.pool.workers[0].pid == alive_pid
 
@@ -262,12 +276,43 @@ class TestTaskDispatcher:
         })
         assert result == 4
 
+    def test_function_dispatch_must_be_decorated(self):
+        result = self.tm.perform_work({
+            'task': 'awx.main.tests.functional.test_dispatch.restricted',
+            'args': [2, 2]
+        })
+        assert isinstance(result, ValueError)
+        assert str(result) == 'awx.main.tests.functional.test_dispatch.restricted is not decorated with @task()'  # noqa
+
     def test_method_dispatch(self):
         result = self.tm.perform_work({
             'task': 'awx.main.tests.functional.test_dispatch.Adder',
             'args': [2, 2]
         })
         assert result == 4
+
+    def test_method_dispatch_must_be_decorated(self):
+        result = self.tm.perform_work({
+            'task': 'awx.main.tests.functional.test_dispatch.Restricted',
+            'args': [2, 2]
+        })
+        assert isinstance(result, ValueError)
+        assert str(result) == 'awx.main.tests.functional.test_dispatch.Restricted is not decorated with @task()'  # noqa
+
+    def test_python_function_cannot_be_imported(self):
+        result = self.tm.perform_work({
+            'task': 'os.system',
+            'args': ['ls'],
+        })
+        assert isinstance(result, ValueError)
+        assert str(result) == 'os.system is not a valid awx task'  # noqa
+
+    def test_undefined_function_cannot_be_imported(self):
+        result = self.tm.perform_work({
+            'task': 'awx.foo.bar'
+        })
+        assert isinstance(result, ModuleNotFoundError)
+        assert str(result) == "No module named 'awx.foo'"  # noqa
 
 
 class TestTaskPublisher:

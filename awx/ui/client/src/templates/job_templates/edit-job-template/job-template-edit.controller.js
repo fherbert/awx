@@ -11,22 +11,22 @@
 */
 
 export default
-    [   '$filter', '$scope', '$rootScope',
-        '$location', '$stateParams', 'JobTemplateForm', 'GenerateForm',
-        'Rest', 'Alert',  'ProcessErrors', 'GetBasePath', 'md5Setup',
+    [   '$filter', '$scope',
+        '$stateParams', 'JobTemplateForm', 'GenerateForm',
+        'Rest', 'Alert',  'ProcessErrors', 'GetBasePath', 'hashSetup',
         'ParseTypeChange', 'Wait', 'selectedLabels', 'i18n',
-        'Empty', 'Prompt', 'ToJSON', 'GetChoices', 'CallbackHelpInit',
-        'initSurvey', '$state', 'CreateSelect2',
+        'Empty', 'ToJSON', 'GetChoices', 'CallbackHelpInit',
+        'initSurvey', '$state', 'CreateSelect2', 'isNotificationAdmin',
         'ToggleNotification','$q', 'InstanceGroupsService', 'InstanceGroupsData',
         'MultiCredentialService', 'availableLabels', 'projectGetPermissionDenied',
         'inventoryGetPermissionDenied', 'jobTemplateData', 'ParseVariableString', 'ConfigData',
         function(
-            $filter, $scope, $rootScope,
-            $location, $stateParams, JobTemplateForm, GenerateForm, Rest, Alert,
-            ProcessErrors, GetBasePath, md5Setup,
+            $filter, $scope,
+            $stateParams, JobTemplateForm, GenerateForm, Rest, Alert,
+            ProcessErrors, GetBasePath, hashSetup,
             ParseTypeChange, Wait, selectedLabels, i18n,
-            Empty, Prompt, ToJSON, GetChoices, CallbackHelpInit,
-            SurveyControllerInit, $state, CreateSelect2,
+            Empty, ToJSON, GetChoices, CallbackHelpInit,
+            SurveyControllerInit, $state, CreateSelect2, isNotificationAdmin,
             ToggleNotification, $q, InstanceGroupsService, InstanceGroupsData,
             MultiCredentialService, availableLabels, projectGetPermissionDenied,
             inventoryGetPermissionDenied, jobTemplateData, ParseVariableString, ConfigData
@@ -64,6 +64,7 @@ export default
                 $scope.skip_tag_options = [];
                 const virtualEnvs = ConfigData.custom_virtualenvs || [];
                 $scope.custom_virtualenvs_options = virtualEnvs;
+                $scope.isNotificationAdmin = isNotificationAdmin || false;
 
                 SurveyControllerInit({
                     scope: $scope,
@@ -245,7 +246,7 @@ export default
                 master = masterObject;
 
                 dft = ($scope.host_config_key === "" || $scope.host_config_key === null) ? false : true;
-                md5Setup({
+                hashSetup({
                     scope: $scope,
                     master: master,
                     check_field: 'allow_callbacks',
@@ -282,7 +283,7 @@ export default
                 $scope.breadcrumb.job_template_name = jobTemplateData.name;
                 var fld, i;
                 for (fld in form.fields) {
-                    if (fld !== 'extra_vars' && fld !== 'survey' && fld !== 'forks' && jobTemplateData[fld] !== null && jobTemplateData[fld] !== undefined) {
+                    if (fld !== 'extra_vars' && fld !== 'survey' && jobTemplateData[fld] !== null && jobTemplateData[fld] !== undefined) {
                         if (form.fields[fld].type === 'select') {
                             if ($scope[fld + '_options'] && $scope[fld + '_options'].length > 0) {
                                 for (i = 0; i < $scope[fld + '_options'].length; i++) {
@@ -300,12 +301,6 @@ export default
                             }
                         }
                         master[fld] = $scope[fld];
-                    }
-                    if (fld === 'forks') {
-                        if (jobTemplateData[fld] !== 0) {
-                            $scope[fld] = jobTemplateData[fld];
-                            master[fld] = $scope[fld];
-                        }
                     }
                     if (fld === 'extra_vars') {
                         // Parse extra_vars, converting to YAML.
@@ -692,7 +687,7 @@ export default
                         })
                         .catch(({data, status}) => {
                             ProcessErrors($scope, data, status, form, { hdr: 'Error!',
-                                msg: 'Failed to update job template. PUT returned status: ' + status });
+                                msg: 'Failed to update job template. PATCH returned status: ' + status });
                         });
                 } catch (err) {
                     Wait('stop');

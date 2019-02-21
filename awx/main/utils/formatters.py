@@ -7,7 +7,6 @@ import json
 import time
 import logging
 
-import six
 
 from django.conf import settings
 
@@ -31,12 +30,16 @@ class LogstashFormatter(LogstashFormatterVersion1):
         to the logging receiver
         '''
         if kind == 'activity_stream':
+            try:
+                raw_data['changes'] = json.loads(raw_data.get('changes', '{}'))
+            except Exception:
+                pass  # best effort here, if it's not valid JSON, then meh
             return raw_data
         elif kind == 'system_tracking':
             data = copy(raw_data['ansible_facts'])
         else:
             data = copy(raw_data)
-        if isinstance(data, six.string_types):
+        if isinstance(data, str):
             data = json.loads(data)
         data_for_log = {}
 

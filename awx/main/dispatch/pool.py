@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 import random
 import traceback
 from uuid import uuid4
@@ -8,7 +7,7 @@ from uuid import uuid4
 import collections
 from multiprocessing import Process
 from multiprocessing import Queue as MPQueue
-from Queue import Full as QueueFull, Empty as QueueEmpty
+from queue import Full as QueueFull, Empty as QueueEmpty
 
 from django.conf import settings
 from django.db import connection as django_connection, connections
@@ -129,7 +128,7 @@ class PoolWorker(object):
         # the task at [0] is the one that's running right now (or is about to
         # be running)
         if len(self.managed_tasks):
-            return self.managed_tasks[self.managed_tasks.keys()[0]]
+            return self.managed_tasks[list(self.managed_tasks.keys())[0]]
 
         return None
 
@@ -180,7 +179,7 @@ class WorkerPool(object):
     class MessagePrinter(awx.main.dispatch.worker.BaseWorker):
 
         def perform_work(self, body):
-            print body
+            print(body)
 
     pool = WorkerPool(min_workers=4)  # spawn four worker processes
     pool.init_workers(MessagePrint().work_loop)
@@ -253,7 +252,7 @@ class WorkerPool(object):
         return tmpl.render(pool=self, workers=self.workers, meta=self.debug_meta)
 
     def write(self, preferred_queue, body):
-        queue_order = sorted(range(len(self.workers)), cmp=lambda x, y: -1 if x==preferred_queue else 0)
+        queue_order = sorted(range(len(self.workers)), key=lambda x: -1 if x==preferred_queue else x)
         write_attempt_order = []
         for queue_actual in queue_order:
             try:
@@ -296,6 +295,9 @@ class AutoscalePool(WorkerPool):
             # 5 workers per GB of total memory
             self.max_workers = (total_memory_gb * 5)
 
+        # max workers can't be less than min_workers
+        self.max_workers = max(self.min_workers, self.max_workers)
+
     @property
     def should_grow(self):
         if len(self.workers) < self.min_workers:
@@ -322,6 +324,11 @@ class AutoscalePool(WorkerPool):
         2.  Clean up unnecessary, idle workers.
         3.  Check to see if the database says this node is running any tasks
             that aren't actually running.  If so, reap them.
+
+        IMPORTANT: this function is one of the few places in the dispatcher
+        (aside from setting lookups) where we talk to the database.  As such,
+        if there's an outage, this method _can_ throw various
+        django.db.utils.Error exceptions.  Act accordingly.
         """
         orphaned = []
         for w in self.workers[::]:
@@ -362,14 +369,8 @@ class AutoscalePool(WorkerPool):
         running_uuids = []
         for worker in self.workers:
             worker.calculate_managed_tasks()
-            running_uuids.extend(worker.managed_tasks.keys())
-        try:
-            reaper.reap(excluded_uuids=running_uuids)
-        except Exception:
-            # we _probably_ failed here due to DB connectivity issues, so
-            # don't use our logger (it accesses the database for configuration)
-            _, _, tb = sys.exc_info()
-            traceback.print_tb(tb)
+            running_uuids.extend(list(worker.managed_tasks.keys()))
+        reaper.reap(excluded_uuids=running_uuids)
 
     def up(self):
         if self.full:

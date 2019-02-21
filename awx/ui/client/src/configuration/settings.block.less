@@ -35,7 +35,9 @@
     width: 100%;
     margin: 0 0 22px auto;
     display: flex;
-    justify-content: flex-end;
+    justify-content: flex-start;
+    border-bottom: 1px solid @at-gray-b7;
+    padding-bottom: 22px;
 }
 
 .Form-nav--ldapDropdownContainer {
@@ -77,6 +79,7 @@ label#filePickerButton {
     cursor: pointer;
     background-color: #fff;
     color: @default-interface-txt;
+    margin-bottom: 0;
 }
 input#filePickerText {
     cursor: default;
@@ -129,7 +132,7 @@ input#filePickerText {
     display: inline-block;
 
     // Filepicker and toggle disabling
-    .Form-filePicker--pickerButton, .Form-filePicker--textBox,
+    .Form-browseButton, .Form-filePicker--textBox,
     .ScheduleToggle {
         pointer-events: none;
         cursor: not-allowed;

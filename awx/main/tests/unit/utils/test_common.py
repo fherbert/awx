@@ -7,7 +7,7 @@ import pytest
 from uuid import uuid4
 import json
 import yaml
-import mock
+from unittest import mock
 
 from backports.tempfile import TemporaryDirectory
 from django.conf import settings
@@ -154,12 +154,11 @@ def test_memoize_delete(memoized_function, mock_cache):
 
 
 def test_memoize_parameter_error():
-    @common.memoize(cache_key='foo', track_function=True)
-    def fn():
-        return
 
     with pytest.raises(common.IllegalArgumentError):
-        fn()
+        @common.memoize(cache_key='foo', track_function=True)
+        def fn():
+            return
 
 
 def test_extract_ansible_vars():
@@ -174,12 +173,14 @@ def test_extract_ansible_vars():
 
 def test_get_custom_venv_choices():
     bundled_venv = os.path.join(settings.BASE_VENV_PATH, 'ansible', '')
-    assert common.get_custom_venv_choices() == [bundled_venv]
+    bundled_venv_py3 = os.path.join(settings.BASE_VENV_PATH, 'ansible3', '')
+    assert sorted(common.get_custom_venv_choices()) == [bundled_venv, bundled_venv_py3]
 
     with TemporaryDirectory(dir=settings.BASE_VENV_PATH, prefix='tmp') as temp_dir:
         os.makedirs(os.path.join(temp_dir, 'bin', 'activate'))
         assert sorted(common.get_custom_venv_choices()) == [
             bundled_venv,
+            bundled_venv_py3,
             os.path.join(temp_dir, '')
         ]
 

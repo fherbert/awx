@@ -2,7 +2,7 @@
 
 ## Requirements
 - node.js 8.x LTS
-- npm 5.x LTS
+- npm >=5.10
 - bzip2, gcc-c++, git, make
 
 ## Development
@@ -57,14 +57,22 @@ npm --prefix awx/ui run e2e
 
 ## Adding dependencies
 ```shell
-# add a development or build dependency
-npm install --prefix awx/ui --save-dev dev-package@1.2.3
+# add an exact development or build dependency
+npm install --prefix awx/ui --save-dev --save-exact dev-package@1.2.3
+# add an exact production dependency
+npm install --prefix awx/ui --save --save-exact prod-package@1.23
 
-# add a production dependency
-npm install --prefix awx/ui --save prod-package@1.23
-
-# add the updated package.json and lock files to scm
+# add the updated package.json and package-lock.json files to scm
 git add awx/ui/package.json awx/ui/package-lock.json
+```
+
+## Removing dependencies
+```shell
+# remove a development or build dependency
+npm uninstall --prefix awx/ui --save-dev dev-package
+
+# remove a production dependency
+npm uninstall --prefix awx/ui --save prod-package
 ```
 
 ## Building for Production

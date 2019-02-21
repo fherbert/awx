@@ -194,7 +194,7 @@ function projectsListController (
                     dismissButton: false,
                     dismissOnTimeout: true
                 });
-                $state.go('.', null, { reload: true });
+                reloadList();
             })
             .catch(createErrorHandler('copy project', 'GET'))
             .finally(() => Wait('stop'));
@@ -417,6 +417,16 @@ function projectsListController (
         }
         return tooltip;
     }
+
+    vm.isCollapsed = true;
+
+    vm.onCollapse = () => {
+        vm.isCollapsed = true;
+    };
+
+    vm.onExpand = () => {
+        vm.isCollapsed = false;
+    };
 }
 
 projectsListController.$inject = [

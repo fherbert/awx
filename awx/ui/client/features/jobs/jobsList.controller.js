@@ -86,10 +86,33 @@ function ListJobsController (
         }
 
         if (job.job_slice_number && job.job_slice_count) {
-            return `Slice Job ${job.job_slice_number}/${job.job_slice_count}`;
+            return `${strings.get('list.SLICE_JOB')} ${job.job_slice_number}/${job.job_slice_count}`;
         }
 
         return null;
+    };
+
+    vm.getTranslatedStatusString = (status) => {
+        switch (status) {
+            case 'new':
+                return strings.get('list.NEW');
+            case 'pending':
+                return strings.get('list.PENDING');
+            case 'waiting':
+                return strings.get('list.WAITING');
+            case 'running':
+                return strings.get('list.RUNNING');
+            case 'successful':
+                return strings.get('list.SUCCESSFUL');
+            case 'failed':
+                return strings.get('list.FAILED');
+            case 'error':
+                return strings.get('list.ERROR');
+            case 'canceled':
+                return strings.get('list.CANCELED');
+            default:
+                return status;
+        }
     };
 
     vm.getSref = ({ type, id }) => {
@@ -132,11 +155,11 @@ function ListJobsController (
                     let reloadListStateParams = null;
 
                     if (vm.jobs.length === 1 && $state.params.job_search &&
-                    _.has($state, 'params.job_search.page') &&
-                    $state.params.job_search.page !== '1') {
+                        _.has($state, 'params.job_search.page') &&
+                        $state.params.job_search.page !== '1') {
                         reloadListStateParams = _.cloneDeep($state.params);
                         reloadListStateParams.job_search.page =
-                        (parseInt(reloadListStateParams.job_search.page, 10) - 1).toString();
+                            (parseInt(reloadListStateParams.job_search.page, 10) - 1).toString();
                     }
 
                     $state.go('.', reloadListStateParams, { reload: true });
@@ -173,8 +196,8 @@ function ListJobsController (
                     let reloadListStateParams = null;
 
                     if (vm.jobs.length === 1 && $state.params.job_search &&
-                    !_.isEmpty($state.params.job_search.page) &&
-                    $state.params.job_search.page !== '1') {
+                        !_.isEmpty($state.params.job_search.page) &&
+                        $state.params.job_search.page !== '1') {
                         const page = `${(parseInt(reloadListStateParams
                             .job_search.page, 10) - 1)}`;
                         reloadListStateParams = _.cloneDeep($state.params);
@@ -207,12 +230,22 @@ function ListJobsController (
     };
 
     function refreshJobs () {
-        qs.search(SearchBasePath, $state.params.job_search)
+        qs.search(SearchBasePath, $state.params.job_search, { 'X-WS-Session-Quiet': true })
             .then(({ data }) => {
                 vm.jobs = data.results;
                 vm.job_dataset = data;
             });
     }
+
+    vm.isCollapsed = true;
+
+    vm.onCollapse = () => {
+        vm.isCollapsed = true;
+    };
+
+    vm.onExpand = () => {
+        vm.isCollapsed = false;
+    };
 }
 
 ListJobsController.$inject = [

@@ -4,7 +4,6 @@
 import os
 import re  # noqa
 import sys
-import six
 from datetime import timedelta
 
 # global settings
@@ -40,7 +39,7 @@ def IS_TESTING(argv=None):
 
 
 if "pytest" in sys.modules:
-    import mock
+    from unittest import mock
     with mock.patch('__main__.__builtins__.dir', return_value=[]):
         import ldap
 else:
@@ -250,8 +249,9 @@ TEMPLATES = [
 ]
 
 MIDDLEWARE_CLASSES = (  # NOQA
-    'awx.main.middleware.MigrationRanCheckMiddleware',
     'awx.main.middleware.TimingMiddleware',
+    'awx.main.middleware.MigrationRanCheckMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.locale.LocaleMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -284,6 +284,7 @@ INSTALLED_APPS = (
     'polymorphic',
     'taggit',
     'social_django',
+    'corsheaders',
     'awx.conf',
     'awx.main',
     'awx.api',
@@ -430,6 +431,9 @@ AWX_ISOLATED_CONNECTION_TIMEOUT = 10
 # The time (in seconds) between the periodic isolated heartbeat status check
 AWX_ISOLATED_PERIODIC_CHECK = 600
 
+# Verbosity level for isolated node management tasks
+AWX_ISOLATED_VERBOSITY = 0
+
 # Memcached django cache configuration
 # CACHES = {
 #     'default': {
@@ -494,11 +498,11 @@ CELERYBEAT_SCHEDULE = {
 AWX_INCONSISTENT_TASK_INTERVAL = 60 * 3
 
 AWX_CELERY_QUEUES_STATIC = [
-    six.text_type(CELERY_DEFAULT_QUEUE),
+    CELERY_DEFAULT_QUEUE,
 ]
 
 AWX_CELERY_BCAST_QUEUES_STATIC = [
-    six.text_type('tower_broadcast_all'),
+    'tower_broadcast_all',
 ]
 
 ASGI_AMQP = {
@@ -605,6 +609,9 @@ ANSIBLE_PARAMIKO_RECORD_HOST_KEYS = False
 # Force ansible in color even if we don't have a TTY so we can properly colorize
 # output
 ANSIBLE_FORCE_COLOR = True
+
+# If tmp generated inventory parsing fails (error state), fail playbook fast
+ANSIBLE_INVENTORY_UNPARSED_FAILED = True
 
 # Additional environment variables to be passed to the ansible subprocesses
 AWX_TASK_ENV = {}
@@ -948,7 +955,7 @@ TOWER_ADMIN_ALERTS = True
 # Note: This setting may be overridden by database settings.
 TOWER_URL_BASE = "https://towerhost"
 
-INSIGHTS_URL_BASE = "https://access.redhat.com"
+INSIGHTS_URL_BASE = "https://example.org"
 
 TOWER_SETTINGS_MANIFEST = {}
 
@@ -1113,11 +1120,11 @@ LOGGING = {
             'handlers': ['console'],
         },
         'django.request': {
-            'handlers': ['mail_admins', 'console', 'file', 'tower_warnings'],
+            'handlers': ['console', 'file', 'tower_warnings'],
             'level': 'WARNING',
         },
         'rest_framework.request': {
-            'handlers': ['mail_admins', 'console', 'file', 'tower_warnings'],
+            'handlers': ['console', 'file', 'tower_warnings'],
             'level': 'WARNING',
             'propagate': False,
         },

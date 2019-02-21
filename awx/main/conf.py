@@ -198,6 +198,18 @@ register(
 )
 
 register(
+    'AWX_ISOLATED_VERBOSITY',
+    field_class=fields.IntegerField,
+    min_value=0,
+    max_value=5,
+    label=_('Verbosity level for isolated node management tasks'),
+    help_text=_('This can be raised to aid in debugging connection issues for isolated task execution'),
+    category=_('Jobs'),
+    category_slug='jobs',
+    default=0
+)
+
+register(
     'AWX_ISOLATED_CHECK_INTERVAL',
     field_class=fields.IntegerField,
     min_value=0,
@@ -283,7 +295,7 @@ register(
     field_class=fields.BooleanField,
     default=True,
     label=_('Enable Role Download'),
-    help_text=_('Allows roles to be dynamically downlaoded from a requirements.yml file for SCM projects.'),
+    help_text=_('Allows roles to be dynamically downloaded from a requirements.yml file for SCM projects.'),
     category=_('Jobs'),
     category_slug='jobs',
 )

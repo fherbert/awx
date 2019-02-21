@@ -20,6 +20,25 @@ import {
 import ProjectsTemplatesRoute from '~features/templates/routes/projectsTemplatesList.route';
 import projectsListRoute from '~features/projects/routes/projectsList.route.js';
 
+
+function ResolveScmCredentialType (GetBasePath, Rest, ProcessErrors) {
+    Rest.setUrl(GetBasePath('credential_types') + '?kind=scm');
+
+    return Rest.get()
+        .then(({ data }) => {
+            return data.results[0].id;
+        })
+        .catch(({ data, status }) => {
+            ProcessErrors(null, data, status, null, {
+                hdr: 'Error!',
+                msg: 'Failed to get credential type data: ' + status
+            });
+        });
+}
+
+ResolveScmCredentialType.$inject = ['GetBasePath', 'Rest', 'ProcessErrors'];
+
+
 export default
 angular.module('Projects', [])
     .controller('ProjectsAdd', ProjectsAdd)
@@ -34,19 +53,29 @@ angular.module('Projects', [])
             let stateDefinitions = stateDefinitionsProvider.$get();
             let stateExtender = $stateExtenderProvider.$get();
 
+            const projectsAddName = 'projects.add';
+            const projectsEditName = 'projects.edit';
+
             function generateStateTree() {
                 let projectAdd = stateDefinitions.generateTree({
-                    name: 'projects.add',
+                    name: projectsAddName,
                     url: '/add',
                     modes: ['add'],
                     form: 'ProjectsForm',
                     controllers: {
                         add: 'ProjectsAdd',
                     },
+                })
+                .then(res => {
+                    const stateIndex = res.states.findIndex(s => s.name === projectsAddName);
+
+                    res.states[stateIndex].resolve.scmCredentialType = ResolveScmCredentialType;
+
+                    return res;
                 });
 
                 let projectEdit = stateDefinitions.generateTree({
-                    name: 'projects.edit',
+                    name: projectsEditName,
                     url: '/:project_id',
                     modes: ['edit'],
                     form: 'ProjectsForm',
@@ -61,6 +90,31 @@ angular.module('Projects', [])
                     breadcrumbs: { 
                         edit: '{{breadcrumb.project_name}}'
                     },
+                    resolve: {
+                        edit: {
+                            isNotificationAdmin: ['Rest', 'ProcessErrors', 'GetBasePath', 'i18n',
+                                function(Rest, ProcessErrors, GetBasePath, i18n) {
+                                    Rest.setUrl(`${GetBasePath('organizations')}?role_level=notification_admin_role&page_size=1`);
+                                    return Rest.get()
+                                        .then(({data}) => {
+                                            return data.count > 0;
+                                        })
+                                        .catch(({data, status}) => {
+                                            ProcessErrors(null, data, status, null, {
+                                                hdr: i18n._('Error!'),
+                                                msg: i18n._('Failed to get organizations for which this user is a notification administrator. GET returned ') + status
+                                            });
+                                    });
+                            }]
+                        }
+                    }
+                })
+                .then(res => {
+                    const stateIndex = res.states.findIndex(s => s.name === projectsEditName);
+
+                    res.states[stateIndex].resolve.scmCredentialType = ResolveScmCredentialType;
+
+                    return res;
                 });
 
                 return Promise.all([

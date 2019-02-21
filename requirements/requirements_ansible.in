@@ -32,6 +32,8 @@ azure-graphrbac==0.40.0
 # AWS
 boto==2.47.0    # last which does not break ec2 scripts
 boto3==1.6.2
+# netconf for network modules
+ncclient==0.6.3
 # netaddr filter
 netaddr
 # oVirt/RHV
@@ -43,7 +45,6 @@ psutil==5.4.3    # same as AWX requirement
 setuptools==36.0.1
 pip==9.0.1
 # VMware
-psphere==0.5.2
 pyvmomi==6.5
 # WinRM
 backports.ssl-match-hostname==3.5.0.1

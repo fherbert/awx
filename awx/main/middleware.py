@@ -4,11 +4,11 @@
 import uuid
 import logging
 import threading
-import six
 import time
 import cProfile
 import pstats
 import os
+import urllib.parse
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -34,7 +34,7 @@ perf_logger = logging.getLogger('awx.analytics.performance')
 
 class TimingMiddleware(threading.local):
 
-    dest = '/var/lib/awx/profile'
+    dest = '/var/log/tower/profile'
 
     def process_request(self, request):
         self.start_time = time.time()
@@ -57,7 +57,7 @@ class TimingMiddleware(threading.local):
     def save_profile_file(self, request):
         if not os.path.isdir(self.dest):
             os.makedirs(self.dest)
-        filename = '%.3fs-%s' % (pstats.Stats(self.prof).total_tt, uuid.uuid4())
+        filename = '%.3fs-%s.pstats' % (pstats.Stats(self.prof).total_tt, uuid.uuid4())
         filepath = os.path.join(self.dest, filename)
         with open(filepath, 'w') as f:
             f.write('%s %s\n' % (request.method, request.get_full_path()))
@@ -126,8 +126,9 @@ class SessionTimeoutMiddleware(object):
     """
 
     def process_response(self, request, response):
+        should_skip = 'HTTP_X_WS_SESSION_QUIET' in request.META
         req_session = getattr(request, 'session', None)
-        if req_session and not req_session.is_empty():
+        if req_session and not req_session.is_empty() and should_skip is False:
             expiry = int(settings.SESSION_COOKIE_AGE)
             request.session.set_expiry(expiry)
             response['Session-Timeout'] = expiry
@@ -194,7 +195,7 @@ class URLModificationMiddleware(object):
 
     def process_request(self, request):
         if hasattr(request, 'environ') and 'REQUEST_URI' in request.environ:
-            old_path = six.moves.urllib.parse.urlsplit(request.environ['REQUEST_URI']).path
+            old_path = urllib.parse.urlsplit(request.environ['REQUEST_URI']).path
             old_path = old_path[request.path.find(request.path_info):]
         else:
             old_path = request.path_info

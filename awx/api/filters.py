@@ -25,7 +25,6 @@ from rest_framework.filters import BaseFilterBackend
 from awx.main.utils import get_type_for_model, to_python_boolean
 from awx.main.utils.db import get_all_field_names
 from awx.main.models.credential import CredentialType
-from awx.main.models.rbac import RoleAncestorEntry
 
 
 class V1CredentialFilterBackend(BaseFilterBackend):
@@ -66,7 +65,7 @@ class TypeFilterBackend(BaseFilterBackend):
                 model = queryset.model
                 model_type = get_type_for_model(model)
                 if 'polymorphic_ctype' in get_all_field_names(model):
-                    types_pks = set([v for k,v in types_map.items() if k in types])
+                    types_pks = set([v for k, v in types_map.items() if k in types])
                     queryset = queryset.filter(polymorphic_ctype_id__in=types_pks)
                 elif model_type in types:
                     queryset = queryset
@@ -193,7 +192,7 @@ class FieldLookupBackend(BaseFilterBackend):
 
     def value_to_python(self, model, lookup, value):
         try:
-            lookup = lookup.encode("ascii")
+            lookup.encode("ascii")
         except UnicodeEncodeError:
             raise ValueError("%r is not an allowed field name. Must be ascii encodable." % lookup)
 
@@ -347,12 +346,12 @@ class FieldLookupBackend(BaseFilterBackend):
                     else:
                         args.append(Q(**{k:v}))
                 for role_name in role_filters:
+                    if not hasattr(queryset.model, 'accessible_pk_qs'):
+                        raise ParseError(_(
+                            'Cannot apply role_level filter to this list because its model '
+                            'does not use roles for access control.'))
                     args.append(
-                        Q(pk__in=RoleAncestorEntry.objects.filter(
-                            ancestor__in=request.user.roles.all(),
-                            content_type_id=ContentType.objects.get_for_model(queryset.model).id,
-                            role_field=role_name
-                        ).values_list('object_id').distinct())
+                        Q(pk__in=queryset.model.accessible_pk_qs(request.user, role_name))
                     )
                 if or_filters:
                     q = Q()
@@ -364,12 +363,12 @@ class FieldLookupBackend(BaseFilterBackend):
                     args.append(q)
                 if search_filters and search_filter_relation == 'OR':
                     q = Q()
-                    for term, constrains in search_filters.iteritems():
+                    for term, constrains in search_filters.items():
                         for constrain in constrains:
                             q |= Q(**{constrain: term})
                     args.append(q)
                 elif search_filters and search_filter_relation == 'AND':
-                    for term, constrains in search_filters.iteritems():
+                    for term, constrains in search_filters.items():
                         q_chain = Q()
                         for constrain in constrains:
                             q_chain |= Q(**{constrain: term})

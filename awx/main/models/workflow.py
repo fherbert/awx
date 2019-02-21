@@ -2,7 +2,6 @@
 # All Rights Reserved.
 
 # Python
-#import urlparse
 import logging
 
 # Django
@@ -24,20 +23,20 @@ from awx.main.models.rbac import (
     ROLE_SINGLETON_SYSTEM_ADMINISTRATOR,
     ROLE_SINGLETON_SYSTEM_AUDITOR
 )
-from awx.main.fields import ImplicitRoleField
+from awx.main.fields import ImplicitRoleField, AskForField
 from awx.main.models.mixins import (
     ResourceMixin,
     SurveyJobTemplateMixin,
     SurveyJobMixin,
     RelatedJobsMixin,
 )
-from awx.main.models.jobs import LaunchTimeConfig
+from awx.main.models.jobs import LaunchTimeConfigBase, LaunchTimeConfig, JobTemplate
 from awx.main.models.credential import Credential
 from awx.main.redact import REPLACE_STR
 from awx.main.fields import JSONField
 
 from copy import copy
-from urlparse import urljoin
+from urllib.parse import urljoin
 
 __all__ = ['WorkflowJobTemplate', 'WorkflowJob', 'WorkflowJobOptions', 'WorkflowJobNode', 'WorkflowJobTemplateNode',]
 
@@ -82,7 +81,7 @@ class WorkflowNodeBase(CreatedModifiedModel, LaunchTimeConfig):
         success_parents = getattr(self, '%ss_success' % self.__class__.__name__.lower()).all()
         failure_parents = getattr(self, '%ss_failure' % self.__class__.__name__.lower()).all()
         always_parents = getattr(self, '%ss_always' % self.__class__.__name__.lower()).all()
-        return success_parents | failure_parents | always_parents
+        return (success_parents | failure_parents | always_parents).order_by('id')
 
     @classmethod
     def _get_workflow_job_field_names(cls):
@@ -184,9 +183,25 @@ class WorkflowJobNode(WorkflowNodeBase):
         default={},
         editable=False,
     )
+    do_not_run = models.BooleanField(
+        default=False,
+        help_text=_("Indidcates that a job will not be created when True. Workflow runtime "
+                    "semantics will mark this True if the node is in a path that will "
+                    "decidedly not be ran. A value of False means the node may not run."),
+    )
 
     def get_absolute_url(self, request=None):
         return reverse('api:workflow_job_node_detail', kwargs={'pk': self.pk}, request=request)
+
+    def prompts_dict(self, *args, **kwargs):
+        r = super(WorkflowJobNode, self).prompts_dict(*args, **kwargs)
+        # Explanation - WFJT extra_vars still break pattern, so they are not
+        # put through prompts processing, but inventory is only accepted
+        # if JT prompts for it, so it goes through this mechanism
+        if self.workflow_job and self.workflow_job.inventory_id:
+            # workflow job inventory takes precedence
+            r['inventory'] = self.workflow_job.inventory
+        return r
 
     def get_job_kwargs(self):
         '''
@@ -199,7 +214,14 @@ class WorkflowJobNode(WorkflowNodeBase):
         data = {}
         ujt_obj = self.unified_job_template
         if ujt_obj is not None:
-            accepted_fields, ignored_fields, errors = ujt_obj._accept_or_ignore_job_kwargs(**self.prompts_dict())
+            # MERGE note: move this to prompts_dict method on node when merging
+            # with the workflow inventory branch
+            prompts_data = self.prompts_dict()
+            if isinstance(ujt_obj, WorkflowJobTemplate):
+                if self.workflow_job.extra_vars:
+                    prompts_data.setdefault('extra_vars', {})
+                    prompts_data['extra_vars'].update(self.workflow_job.extra_vars_dict)
+            accepted_fields, ignored_fields, errors = ujt_obj._accept_or_ignore_job_kwargs(**prompts_data)
             if errors:
                 logger.info(_('Bad launch configuration starting template {template_pk} as part of '
                               'workflow {workflow_pk}. Errors:\n{error_text}').format(
@@ -241,17 +263,21 @@ class WorkflowJobNode(WorkflowNodeBase):
             data['survey_passwords'] = password_dict
         # process extra_vars
         extra_vars = data.get('extra_vars', {})
-        if aa_dict:
-            functional_aa_dict = copy(aa_dict)
-            functional_aa_dict.pop('_ansible_no_log', None)
-            extra_vars.update(functional_aa_dict)
-        # Workflow Job extra_vars higher precedence than ancestor artifacts
-        if self.workflow_job and self.workflow_job.extra_vars:
-            extra_vars.update(self.workflow_job.extra_vars_dict)
+        if ujt_obj and isinstance(ujt_obj, (JobTemplate, WorkflowJobTemplate)):
+            if aa_dict:
+                functional_aa_dict = copy(aa_dict)
+                functional_aa_dict.pop('_ansible_no_log', None)
+                extra_vars.update(functional_aa_dict)
+        if ujt_obj and isinstance(ujt_obj, JobTemplate):
+            # Workflow Job extra_vars higher precedence than ancestor artifacts
+            if self.workflow_job and self.workflow_job.extra_vars:
+                extra_vars.update(self.workflow_job.extra_vars_dict)
         if extra_vars:
             data['extra_vars'] = extra_vars
         # ensure that unified jobs created by WorkflowJobs are marked
         data['_eager_fields'] = {'launch_type': 'workflow'}
+        if self.workflow_job and self.workflow_job.created_by:
+            data['_eager_fields']['created_by'] = self.workflow_job.created_by
         # Extra processing in the case that this is a slice job
         if 'job_slice' in self.ancestor_artifacts and is_root_node:
             data['_eager_fields']['allow_simultaneous'] = True
@@ -282,7 +308,8 @@ class WorkflowJobOptions(BaseModel):
     @classmethod
     def _get_unified_job_field_names(cls):
         return set(f.name for f in WorkflowJobOptions._meta.fields) | set(
-            ['name', 'description', 'schedule', 'survey_passwords', 'labels']
+            # NOTE: if other prompts are added to WFJT, put fields in WJOptions, remove inventory
+            ['name', 'description', 'schedule', 'survey_passwords', 'labels', 'inventory']
         )
 
     def _create_workflow_nodes(self, old_node_list, user=None):
@@ -334,6 +361,19 @@ class WorkflowJobTemplate(UnifiedJobTemplate, WorkflowJobOptions, SurveyJobTempl
         on_delete=models.SET_NULL,
         related_name='workflows',
     )
+    inventory = models.ForeignKey(
+        'Inventory',
+        related_name='%(class)ss',
+        blank=True,
+        null=True,
+        default=None,
+        on_delete=models.SET_NULL,
+        help_text=_('Inventory applied to all job templates in workflow that prompt for inventory.'),
+    )
+    ask_inventory_on_launch = AskForField(
+        blank=True,
+        default=False,
+    )
     admin_role = ImplicitRoleField(parent_role=[
         'singleton:' + ROLE_SINGLETON_SYSTEM_ADMINISTRATOR,
         'organization.workflow_admin_role'
@@ -367,7 +407,11 @@ class WorkflowJobTemplate(UnifiedJobTemplate, WorkflowJobOptions, SurveyJobTempl
 
     @property
     def cache_timeout_blocked(self):
-        # TODO: don't allow running of job template if same workflow template running
+        if WorkflowJob.objects.filter(workflow_job_template=self,
+                                      status__in=['pending', 'waiting', 'running']).count() >= getattr(settings, 'SCHEDULE_MAX_JOBS', 10):
+            logger.error("Workflow Job template %s could not be started because there are more than %s other jobs from that template waiting to run" %
+                         (self.name, getattr(settings, 'SCHEDULE_MAX_JOBS', 10)))
+            return True
         return False
 
     @property
@@ -388,27 +432,45 @@ class WorkflowJobTemplate(UnifiedJobTemplate, WorkflowJobOptions, SurveyJobTempl
         workflow_job.copy_nodes_from_original(original=self)
         return workflow_job
 
-    def _accept_or_ignore_job_kwargs(self, _exclude_errors=(), **kwargs):
+    def _accept_or_ignore_job_kwargs(self, **kwargs):
         exclude_errors = kwargs.pop('_exclude_errors', [])
         prompted_data = {}
         rejected_data = {}
-        accepted_vars, rejected_vars, errors_dict = self.accept_or_ignore_variables(
-            kwargs.get('extra_vars', {}),
-            _exclude_errors=exclude_errors,
-            extra_passwords=kwargs.get('survey_passwords', {}))
-        if accepted_vars:
-            prompted_data['extra_vars'] = accepted_vars
-        if rejected_vars:
-            rejected_data['extra_vars'] = rejected_vars
+        errors_dict = {}
 
-        # WFJTs do not behave like JTs, it can not accept inventory, credential, etc.
-        bad_kwargs = kwargs.copy()
-        bad_kwargs.pop('extra_vars', None)
-        bad_kwargs.pop('survey_passwords', None)
-        if bad_kwargs:
-            rejected_data.update(bad_kwargs)
-            for field in bad_kwargs:
-                errors_dict[field] = _('Field is not allowed for use in workflows.')
+        # Handle all the fields that have prompting rules
+        # NOTE: If WFJTs prompt for other things, this logic can be combined with jobs
+        for field_name, ask_field_name in self.get_ask_mapping().items():
+
+            if field_name == 'extra_vars':
+                accepted_vars, rejected_vars, vars_errors = self.accept_or_ignore_variables(
+                    kwargs.get('extra_vars', {}),
+                    _exclude_errors=exclude_errors,
+                    extra_passwords=kwargs.get('survey_passwords', {}))
+                if accepted_vars:
+                    prompted_data['extra_vars'] = accepted_vars
+                if rejected_vars:
+                    rejected_data['extra_vars'] = rejected_vars
+                errors_dict.update(vars_errors)
+                continue
+
+            if field_name not in kwargs:
+                continue
+            new_value = kwargs[field_name]
+            old_value = getattr(self, field_name)
+
+            if new_value == old_value:
+                continue  # no-op case: Counted as neither accepted or ignored
+            elif getattr(self, ask_field_name):
+                # accepted prompt
+                prompted_data[field_name] = new_value
+            else:
+                # unprompted - template is not configured to accept field on launch
+                rejected_data[field_name] = new_value
+                # Not considered an error for manual launch, to support old
+                # behavior of putting them in ignored_fields and launching anyway
+                if 'prompts' not in exclude_errors:
+                    errors_dict[field_name] = _('Field is not configured to prompt on launch.').format(field_name=field_name)
 
         return prompted_data, rejected_data, errors_dict
 
@@ -438,7 +500,7 @@ class WorkflowJobTemplate(UnifiedJobTemplate, WorkflowJobOptions, SurveyJobTempl
         return WorkflowJob.objects.filter(workflow_job_template=self)
 
 
-class WorkflowJob(UnifiedJob, WorkflowJobOptions, SurveyJobMixin, JobNotificationMixin):
+class WorkflowJob(UnifiedJob, WorkflowJobOptions, SurveyJobMixin, JobNotificationMixin, LaunchTimeConfigBase):
     class Meta:
         app_label = 'main'
         ordering = ('id',)
@@ -504,6 +566,24 @@ class WorkflowJob(UnifiedJob, WorkflowJobOptions, SurveyJobMixin, JobNotificatio
     @property
     def task_impact(self):
         return 0
+
+    def get_ancestor_workflows(self):
+        """Returns a list of WFJTs that are indirect parents of this workflow job
+        say WFJTs are set up to spawn in order of A->B->C, and this workflow job
+        came from C, then C is the parent and [B, A] will be returned from this.
+        """
+        ancestors = []
+        wj_ids = set([self.pk])
+        wj = self.get_workflow_job()
+        while wj and wj.workflow_job_template_id:
+            if wj.pk in wj_ids:
+                logger.critical('Cycles detected in the workflow jobs graph, '
+                                'this is not normal and suggests task manager degeneracy.')
+                break
+            wj_ids.add(wj.pk)
+            ancestors.append(wj.workflow_job_template)
+            wj = wj.get_workflow_job()
+        return ancestors
 
     def get_notification_templates(self):
         return self.workflow_job_template.notification_templates

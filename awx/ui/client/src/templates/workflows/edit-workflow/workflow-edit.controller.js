@@ -10,12 +10,12 @@ export default [
     'Wait', 'Empty', 'ToJSON', 'initSurvey', '$state', 'CreateSelect2',
     'ParseVariableString', 'TemplatesService', 'Rest', 'ToggleNotification',
     'OrgAdminLookup', 'availableLabels', 'selectedLabels', 'workflowJobTemplateData', 'i18n',
-    'workflowLaunch', '$transitions', 'WorkflowJobTemplateModel',
+    'workflowLaunch', '$transitions', 'WorkflowJobTemplateModel', 'Inventory', 'isNotificationAdmin',
     function($scope, $stateParams, WorkflowForm, GenerateForm, Alert,
         ProcessErrors, GetBasePath, $q, ParseTypeChange, Wait, Empty,
         ToJSON, SurveyControllerInit, $state, CreateSelect2, ParseVariableString,
         TemplatesService, Rest, ToggleNotification, OrgAdminLookup, availableLabels, selectedLabels, workflowJobTemplateData, i18n,
-        workflowLaunch, $transitions, WorkflowJobTemplate
+        workflowLaunch, $transitions, WorkflowJobTemplate, Inventory, isNotificationAdmin
     ) {
 
         $scope.missingTemplates = _.has(workflowLaunch, 'node_templates_missing') && workflowLaunch.node_templates_missing.length > 0 ? true : false;
@@ -25,6 +25,8 @@ export default [
                 $scope.canAddWorkflowJobTemplate = false;
             }
         });
+
+        $scope.isNotificationAdmin = isNotificationAdmin || false;
 
         const criteriaObj = {
             from: (state) => state.name === 'templates.editWorkflowJobTemplate.workflowMaker',
@@ -53,6 +55,12 @@ export default [
         $scope.mode = 'edit';
         $scope.parseType = 'yaml';
         $scope.includeWorkflowMaker = false;
+        $scope.ask_inventory_on_launch = workflowJobTemplateData.ask_inventory_on_launch;
+
+        if (Inventory){
+            $scope.inventory = Inventory.id;
+            $scope.inventory_name = Inventory.name;
+        }
 
         $scope.openWorkflowMaker = function() {
             $state.go('.workflowMaker');
@@ -82,6 +90,8 @@ export default [
                         data[fld] = $scope[fld];
                     }
                 }
+
+                data.ask_inventory_on_launch = Boolean($scope.ask_inventory_on_launch);
 
                 data.extra_vars = ToJSON($scope.parseType,
                     $scope.variables, true);
@@ -310,6 +320,16 @@ export default [
         }
         else {
             $scope.canEditOrg = true;
+        }
+
+        if(workflowJobTemplateData.inventory) {
+            OrgAdminLookup.checkForRoleLevelAdminAccess(workflowJobTemplateData.inventory, 'workflow_admin_role')
+            .then(function(canEditInventory){
+                $scope.canEditInventory = canEditInventory;
+            });
+        }
+        else {
+            $scope.canEditInventory = true;
         }
 
         $scope.url = workflowJobTemplateData.url;

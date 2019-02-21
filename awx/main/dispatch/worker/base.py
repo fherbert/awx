@@ -5,8 +5,9 @@ import os
 import logging
 import signal
 from uuid import UUID
-from Queue import Empty as QueueEmpty
+from queue import Empty as QueueEmpty
 
+from django import db
 from kombu import Producer
 from kombu.mixins import ConsumerMixin
 
@@ -80,7 +81,11 @@ class AWXConsumer(ConsumerMixin):
 
     def process_task(self, body, message):
         if 'control' in body:
-            return self.control(body, message)
+            try:
+                return self.control(body, message)
+            except Exception:
+                logger.exception("Exception handling control message:")
+                return
         if len(self.pool):
             if "uuid" in body and body['uuid']:
                 try:
@@ -128,6 +133,10 @@ class BaseWorker(object):
                 logger.error("Exception on worker {}, restarting: ".format(idx) + str(e))
                 continue
             try:
+                for conn in db.connections.all():
+                    # If the database connection has a hiccup during the prior message, close it
+                    # so we can establish a new connection
+                    conn.close_if_unusable_or_obsolete()
                 self.perform_work(body, *args)
             finally:
                 if 'uuid' in body:

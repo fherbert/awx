@@ -68,6 +68,27 @@ export default ['NotificationsList', 'i18n', function(NotificationsList, i18n) {
                     ngDisabled: '!(workflow_job_template_obj.summary_fields.user_capabilities.edit || canAddWorkflowJobTemplate) || !canEditOrg',
                     awLookupWhen: '(workflow_job_template_obj.summary_fields.user_capabilities.edit || canAddWorkflowJobTemplate) && canEditOrg'
                 },
+                inventory: {
+                    label: i18n._('Inventory'),
+                    type: 'lookup',
+                    lookupMessage: i18n._("This inventory is applied to all job template nodes that prompt for an inventory."),
+                    basePath: 'inventory',
+                    list: 'InventoryList',
+                    sourceModel: 'inventory',
+                    sourceField: 'name',
+                    autopopulateLookup: false,
+                    column: 1,
+                    awPopOver: "<p>" + i18n._("Select an inventory for the workflow. This inventory is applied to all job template nodes that prompt for an inventory.") + "</p>",
+                    dataTitle: i18n._('Inventory'),
+                    dataPlacement: 'right',
+                    dataContainer: "body",
+                    subCheckbox: {
+                        variable: 'ask_inventory_on_launch',
+                        ngChange: 'workflow_job_template_form.inventory_name.$validate()',
+                        text: i18n._('Prompt on launch')
+                    },
+                    ngDisabled: '!(workflow_job_template_obj.summary_fields.user_capabilities.edit || canAddWorkflowJobTemplate) || !canEditInventory',
+                },
                 labels: {
                     label: i18n._('Labels'),
                     type: 'select',
@@ -90,7 +111,7 @@ export default ['NotificationsList', 'i18n', function(NotificationsList, i18n) {
                     rows: 6,
                     "default": "---",
                     column: 2,
-                    awPopOver:i18n._('Pass extra command line variables to the playbook. This is the -e or --extra-vars command line parameter for ansible-playbook. Provide key/value pairs using either YAML or JSON. Refer to the Ansible Tower documentaton for example syntax.'),
+                    awPopOver:i18n._('Pass extra command line variables to the playbook. This is the -e or --extra-vars command line parameter for ansible-playbook. Provide key/value pairs using either YAML or JSON. Refer to the Ansible Tower documentation for example syntax.'),
                     dataTitle: i18n._('Extra Variables'),
                     dataPlacement: 'right',
                     dataContainer: "body",
@@ -108,7 +129,6 @@ export default ['NotificationsList', 'i18n', function(NotificationsList, i18n) {
                         dataPlacement: 'right',
                         dataTitle: i18n._('Enable Concurrent Jobs'),
                         dataContainer: "body",
-                        labelClass: 'stack-inline',
                         ngDisabled: '!(workflow_job_template_obj.summary_fields.user_capabilities.edit || canAddWorkflowJobTemplate)'
                     }]
                 }
@@ -161,19 +181,19 @@ export default ['NotificationsList', 'i18n', function(NotificationsList, i18n) {
                             key: true,
                             label: i18n._('User'),
                             linkBase: 'users',
-                            class: 'col-lg-3 col-md-3 col-sm-3 col-xs-4'
+                            columnClass: 'col-sm-3 col-xs-4'
                         },
                         role: {
                             label: i18n._('Role'),
                             type: 'role',
                             nosort: true,
-                            class: 'col-lg-4 col-md-4 col-sm-4 col-xs-4',
+                            columnClass: 'col-sm-4 col-xs-4'
                         },
                         team_roles: {
                             label: i18n._('Team Roles'),
                             type: 'team_roles',
                             nosort: true,
-                            class: 'col-lg-5 col-md-5 col-sm-5 col-xs-4',
+                            columnClass: 'col-sm-5 col-xs-4'
                         }
                     }
                 },

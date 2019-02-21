@@ -1,5 +1,5 @@
 import pytest
-import mock
+from unittest import mock
 
 import json
 
@@ -15,20 +15,15 @@ from awx.main.models import (
 )
 
 # other AWX
-from awx.main.utils import model_to_dict
+from awx.main.utils import model_to_dict, model_instance_diff
 from awx.main.utils.common import get_allowed_fields
-from awx.api.serializers import InventorySourceSerializer
+from awx.main.signals import model_serializer_mapping
 
 # Django
 from django.contrib.auth.models import AnonymousUser
 
 # Django-CRUM
 from crum import impersonate
-
-
-model_serializer_mapping = {
-    InventorySource: InventorySourceSerializer
-}
 
 
 class TestImplicitRolesOmitted:
@@ -163,7 +158,7 @@ class TestUserModels:
 def test_missing_related_on_delete(inventory_source):
     old_is = InventorySource.objects.get(name=inventory_source.name)
     inventory_source.inventory.delete()
-    d = model_to_dict(old_is, serializer_mapping=model_serializer_mapping)
+    d = model_to_dict(old_is, serializer_mapping=model_serializer_mapping())
     assert d['inventory'] == '<missing inventory source>-{}'.format(old_is.inventory_id)
 
 
@@ -220,8 +215,38 @@ def test_modified_not_allowed_field(somecloud_type):
     activity_stream_registrar, but did not add its serializer to
     the model->serializer mapping.
     '''
-    from awx.main.signals import model_serializer_mapping
     from awx.main.registrar import activity_stream_registrar
 
     for Model in activity_stream_registrar.models:
-        assert 'modified' not in get_allowed_fields(Model(), model_serializer_mapping), Model
+        assert 'modified' not in get_allowed_fields(Model(), model_serializer_mapping()), Model
+
+
+@pytest.mark.django_db
+def test_survey_spec_create_entry(job_template, survey_spec_factory):
+    start_count = job_template.activitystream_set.count()
+    job_template.survey_spec = survey_spec_factory('foo')
+    job_template.save()
+    assert job_template.activitystream_set.count() == start_count + 1
+
+
+@pytest.mark.django_db
+def test_survey_create_diff(job_template, survey_spec_factory):
+    old = JobTemplate.objects.get(pk=job_template.pk)
+    job_template.survey_spec = survey_spec_factory('foo')
+    before, after = model_instance_diff(old, job_template, model_serializer_mapping())['survey_spec']
+    assert before == '{}'
+    assert json.loads(after) == survey_spec_factory('foo')
+
+
+@pytest.mark.django_db
+def test_saved_passwords_hidden_activity(workflow_job_template, job_template_with_survey_passwords):
+    node_with_passwords = workflow_job_template.workflow_nodes.create(
+        unified_job_template=job_template_with_survey_passwords,
+        extra_data={'bbbb': '$encrypted$fooooo'},
+        survey_passwords={'bbbb': '$encrypted$'}
+    )
+    node_with_passwords.delete()
+    entry = ActivityStream.objects.order_by('timestamp').last()
+    changes = json.loads(entry.changes)
+    assert 'survey_passwords' not in changes
+    assert json.loads(changes['extra_data'])['bbbb'] == '$encrypted$'
