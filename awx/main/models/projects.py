@@ -106,13 +106,6 @@ class ProjectOptions(models.Model):
         verbose_name=_('SCM Branch'),
         help_text=_('Specific branch, tag or commit to checkout.'),
     )
-    scm_refspec = models.CharField(
-        max_length=1024,
-        blank=True,
-        default='',
-        verbose_name=_('SCM refspec'),
-        help_text=_('For git projects, an additional refspec to fetch.'),
-    )
     scm_clean = models.BooleanField(
         default=False,
         help_text=_('Discard any local changes before syncing the project.'),
@@ -199,7 +192,7 @@ class ProjectOptions(models.Model):
         results = []
         project_path = self.get_project_path()
         if project_path:
-            for dirpath, dirnames, filenames in os.walk(smart_str(project_path)):
+            for dirpath, dirnames, filenames in os.walk(smart_str(project_path), followlinks=True):
                 if skip_directory(dirpath):
                     continue
                 for filename in filenames:
@@ -248,12 +241,19 @@ class Project(UnifiedJobTemplate, ProjectOptions, ResourceMixin, CustomVirtualEn
     SOFT_UNIQUE_TOGETHER = [('polymorphic_ctype', 'name', 'organization')]
     FIELDS_TO_PRESERVE_AT_COPY = ['labels', 'instance_groups', 'credentials']
     FIELDS_TO_DISCARD_AT_COPY = ['local_path']
-    FIELDS_TRIGGER_UPDATE = frozenset(['scm_url', 'scm_branch', 'scm_type', 'scm_refspec'])
+    FIELDS_TRIGGER_UPDATE = frozenset(['scm_url', 'scm_branch', 'scm_type'])
 
     class Meta:
         app_label = 'main'
         ordering = ('id',)
 
+    organization = models.ForeignKey(
+        'Organization',
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE,
+        related_name='projects',
+    )
     scm_update_on_launch = models.BooleanField(
         default=False,
         help_text=_('Update the project when a job is launched that uses the project.'),
@@ -261,13 +261,8 @@ class Project(UnifiedJobTemplate, ProjectOptions, ResourceMixin, CustomVirtualEn
     scm_update_cache_timeout = models.PositiveIntegerField(
         default=0,
         blank=True,
-        help_text=_('The number of seconds after the last project update ran that a new '
+        help_text=_('The number of seconds after the last project update ran that a new'
                     'project update will be launched as a job dependency.'),
-    )
-    allow_override = models.BooleanField(
-        default=False,
-        help_text=_('Allow changing the SCM branch or revision in a job template '
-                    'that uses this project.'),
     )
 
     scm_revision = models.CharField(
@@ -322,15 +317,8 @@ class Project(UnifiedJobTemplate, ProjectOptions, ResourceMixin, CustomVirtualEn
     @classmethod
     def _get_unified_job_field_names(cls):
         return set(f.name for f in ProjectOptions._meta.fields) | set(
-            ['name', 'description', 'organization']
+            ['name', 'description', 'schedule']
         )
-
-    def clean_organization(self):
-        if self.pk:
-            old_org_id = getattr(self, '_prior_values_store', {}).get('organization_id', None)
-            if self.organization_id != old_org_id and self.jobtemplates.exists():
-                raise ValidationError({'organization': _('Organization cannot be changed when in use by job templates.')})
-        return self.organization
 
     def save(self, *args, **kwargs):
         new_instance = not bool(self.pk)
@@ -450,8 +438,8 @@ class Project(UnifiedJobTemplate, ProjectOptions, ResourceMixin, CustomVirtualEn
     '''
     def _get_related_jobs(self):
         return UnifiedJob.objects.non_polymorphic().filter(
-            models.Q(job__project=self) |
-            models.Q(projectupdate__project=self)
+            models.Q(Job___project=self) |
+            models.Q(ProjectUpdate___project=self)
         )
 
     def delete(self, *args, **kwargs):
@@ -482,20 +470,6 @@ class ProjectUpdate(UnifiedJob, ProjectOptions, JobNotificationMixin, TaskManage
         max_length=64,
         choices=PROJECT_UPDATE_JOB_TYPE_CHOICES,
         default='check',
-    )
-    job_tags = models.CharField(
-        max_length=1024,
-        blank=True,
-        default='',
-        help_text=_('Parts of the project update playbook that will be run.'),
-    )
-    scm_revision = models.CharField(
-        max_length=1024,
-        blank=True,
-        default='',
-        editable=False,
-        verbose_name=_('SCM Revision'),
-        help_text=_('The SCM Revision discovered by this update for the given project and branch.'),
     )
 
     def _get_parent_field_name(self):
@@ -584,8 +558,8 @@ class ProjectUpdate(UnifiedJob, ProjectOptions, JobNotificationMixin, TaskManage
 
     @property
     def preferred_instance_groups(self):
-        if self.organization is not None:
-            organization_groups = [x for x in self.organization.instance_groups.all()]
+        if self.project is not None and self.project.organization is not None:
+            organization_groups = [x for x in self.project.organization.instance_groups.all()]
         else:
             organization_groups = []
         template_groups = [x for x in super(ProjectUpdate, self).preferred_instance_groups]
@@ -593,24 +567,3 @@ class ProjectUpdate(UnifiedJob, ProjectOptions, JobNotificationMixin, TaskManage
         if not selected_groups:
             return self.global_instance_groups
         return selected_groups
-
-    def save(self, *args, **kwargs):
-        added_update_fields = []
-        if not self.job_tags:
-            job_tags = ['update_{}'.format(self.scm_type)]
-            if self.job_type == 'run':
-                job_tags.append('install_roles')
-                job_tags.append('install_collections')
-            self.job_tags = ','.join(job_tags)
-            added_update_fields.append('job_tags')
-        if self.scm_delete_on_update and 'delete' not in self.job_tags and self.job_type == 'check':
-            self.job_tags = ','.join([self.job_tags, 'delete'])
-            added_update_fields.append('job_tags')
-        elif (not self.scm_delete_on_update) and 'delete' in self.job_tags:
-            job_tags = self.job_tags.split(',')
-            job_tags.remove('delete')
-            self.job_tags = ','.join(job_tags)
-            added_update_fields.append('job_tags')
-        if 'update_fields' in kwargs:
-            kwargs['update_fields'].extend(added_update_fields)
-        return super(ProjectUpdate, self).save(*args, **kwargs)
