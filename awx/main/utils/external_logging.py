@@ -1,3 +1,5 @@
+import os
+
 import urllib.parse as urlparse
 
 from django.conf import settings
@@ -13,16 +15,26 @@ def construct_rsyslog_conf_template(settings=settings):
     port = getattr(settings, 'LOG_AGGREGATOR_PORT', '')
     protocol = getattr(settings, 'LOG_AGGREGATOR_PROTOCOL', '')
     timeout = getattr(settings, 'LOG_AGGREGATOR_TCP_TIMEOUT', 5)
+    max_disk_space = getattr(settings, 'LOG_AGGREGATOR_MAX_DISK_USAGE_GB', 1)
+    spool_directory = getattr(settings, 'LOG_AGGREGATOR_MAX_DISK_USAGE_PATH', '/var/lib/awx').rstrip('/')
+
+    if not os.access(spool_directory, os.W_OK):
+        spool_directory = '/var/lib/awx'
+
     max_bytes = settings.MAX_EVENT_RES_DATA
     parts.extend([
         '$WorkDirectory /var/lib/awx/rsyslog',
         f'$MaxMessageSize {max_bytes}',
         '$IncludeConfig /var/lib/awx/rsyslog/conf.d/*.conf',
-        'main_queue(queue.spoolDirectory="/var/lib/awx" queue.maxdiskspace="1g" queue.type="Disk" queue.filename="awx-external-logger-backlog")',
+        f'main_queue(queue.spoolDirectory="{spool_directory}" queue.maxdiskspace="{max_disk_space}g" queue.type="Disk" queue.filename="awx-external-logger-backlog")',  # noqa
         'module(load="imuxsock" SysSock.Use="off")',
         'input(type="imuxsock" Socket="' + settings.LOGGING['handlers']['external_logger']['address'] + '" unlink="on")',
         'template(name="awx" type="string" string="%rawmsg-after-pri%")',
     ])
+
+    def escape_quotes(x):
+        return x.replace('"', '\\"')
+
     if not enabled:
         parts.append('action(type="omfile" file="/dev/null")')  # rsyslog needs *at least* one valid action to start
         tmpl = '\n'.join(parts)
@@ -36,7 +48,7 @@ def construct_rsyslog_conf_template(settings=settings):
             host = '%s://%s' % (scheme, host) if scheme else '//%s' % host
         parsed = urlparse.urlsplit(host)
 
-        host = parsed.hostname
+        host = escape_quotes(parsed.hostname)
         try:
             if parsed.port:
                 port = parsed.port
@@ -65,8 +77,8 @@ def construct_rsyslog_conf_template(settings=settings):
             if parsed.query:
                 path = f'{path}?{urlparse.quote(parsed.query)}'
             params.append(f'restpath="{path}"')
-        username = getattr(settings, 'LOG_AGGREGATOR_USERNAME', '')
-        password = getattr(settings, 'LOG_AGGREGATOR_PASSWORD', '')
+        username = escape_quotes(getattr(settings, 'LOG_AGGREGATOR_USERNAME', ''))
+        password = escape_quotes(getattr(settings, 'LOG_AGGREGATOR_PASSWORD', ''))
         if getattr(settings, 'LOG_AGGREGATOR_TYPE', None) == 'splunk':
             # splunk has a weird authorization header <shrug>
             if password:
