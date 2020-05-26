@@ -440,7 +440,9 @@ register(
     field_class=fields.BooleanField,
     default=False,
     label=_('Show linked playbooks'),
-    help_text=_('Show playbooks that are in directories which are symbolic links'),
+    help_text=_('Show playbooks that are in directories which are symbolic links. Be aware that setting '
+        'this to True can lead to infinite recursion if a link points to a parent directory of itself.'
+    ),
     category=_('Jobs'),
     category_slug='jobs',
 )
